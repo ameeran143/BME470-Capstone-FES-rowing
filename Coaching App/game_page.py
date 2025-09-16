@@ -68,8 +68,11 @@ class SharedStats:
         
     def create_stats_file(self):
         filename = f"{self.userID}_rowing_stats_{time.strftime('%Y%m%d_%H%M%S')}.csv"
-        self.stats_file_path = os.path.join(os.path.expanduser("~\OneDrive\Documents\FES Rowing\Coaching App\Training_Data"), filename)
-        # ~/Desktop/Game/new_game/Training_Data
+        # Use relative path to Training_Data folder in the same directory as the script
+        training_data_dir = os.path.join(os.path.dirname(__file__), "Training_Data")
+        # Ensure the Training_Data directory exists
+        os.makedirs(training_data_dir, exist_ok=True)
+        self.stats_file_path = os.path.join(training_data_dir, filename)
         
         with open(self.stats_file_path, 'w', newline='') as file:
             writer = csv.writer(file)

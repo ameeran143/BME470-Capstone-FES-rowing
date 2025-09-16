@@ -1,0 +1,13 @@
+name: fes_coach_app
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - wxpython
+  - pillow
+  - nidaqmx-python
+  - numpy
+  - pip
+  - pip:
+    - pygame  # Optional: for audio feedback (currently commented out in code) 
