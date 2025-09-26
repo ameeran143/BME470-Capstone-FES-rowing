@@ -5,14 +5,14 @@ Run this script to test sensor connections before using the main application.
 
 SENSOR CHANNEL MAPPING (NI-DAQ Dev2):
 ======================================
-ai0-ai16: [UNUSED]
-ai17: Left Foot Force Sensor
-ai18: [UNUSED]
-ai19: Right Foot Force Sensor
-ai20: [UNUSED]
-ai21: Handle Force Sensor
-ai22: Front Potentiometer → Handle Position
-ai23: Back Potentiometer → Seat Position (converted: voltage * 100)
+ai0-ai15: [UNUSED]
+ai16: Left Foot Force Sensor
+ai17: [UNUSED]
+ai18: Right Foot Force Sensor
+ai19: [UNUSED]
+ai20: Handle Force Sensor
+ai21: Front Potentiometer → Handle Position
+ai22: Back Potentiometer → Seat Position (converted: voltage * 100)
 
 
 """
@@ -26,11 +26,11 @@ def test_hardware_connection():
     try:
         with nidaqmx.Task() as task:
             # Test with the new channel mapping - add each channel individually
-            task.ai_channels.add_ai_voltage_chan("Dev2/ai17")
-            task.ai_channels.add_ai_voltage_chan("Dev2/ai19") 
+            task.ai_channels.add_ai_voltage_chan("Dev2/ai16")
+            task.ai_channels.add_ai_voltage_chan("Dev2/ai18") 
+            task.ai_channels.add_ai_voltage_chan("Dev2/ai20")
             task.ai_channels.add_ai_voltage_chan("Dev2/ai21")
             task.ai_channels.add_ai_voltage_chan("Dev2/ai22")
-            task.ai_channels.add_ai_voltage_chan("Dev2/ai23")
             print("✅ NI-DAQ device 'Dev2' found and accessible")
             return True
     except Exception as e:
@@ -50,11 +50,11 @@ def test_sensor_readings():
         while True:
             with nidaqmx.Task() as task:
                 # Add each channel individually with explicit voltage range
-                task.ai_channels.add_ai_voltage_chan("Dev2/ai17", min_val=-10.0, max_val=10.0)
-                task.ai_channels.add_ai_voltage_chan("Dev2/ai19", min_val=-10.0, max_val=10.0) 
+                task.ai_channels.add_ai_voltage_chan("Dev2/ai16", min_val=-10.0, max_val=10.0)
+                task.ai_channels.add_ai_voltage_chan("Dev2/ai18", min_val=-10.0, max_val=10.0) 
+                task.ai_channels.add_ai_voltage_chan("Dev2/ai20", min_val=-10.0, max_val=10.0)
                 task.ai_channels.add_ai_voltage_chan("Dev2/ai21", min_val=-10.0, max_val=10.0)
                 task.ai_channels.add_ai_voltage_chan("Dev2/ai22", min_val=-10.0, max_val=10.0)
-                task.ai_channels.add_ai_voltage_chan("Dev2/ai23", min_val=-10.0, max_val=10.0)
                 data = task.read(number_of_samples_per_channel=1)
                 
                 # Extract single values from the nested list structure
@@ -67,11 +67,11 @@ def test_sensor_readings():
                 current_readings = [left_foot, right_foot, handle_force, handle_position, seat_position]
                 
                 print(f"Sensor Readings at {time.strftime('%H:%M:%S')}:")
-                print(f"  Left Foot (ai17):    {left_foot:.3f}V")
-                print(f"  Right Foot (ai19):   {right_foot:.3f}V") 
-                print(f"  Handle Force (ai21):  {handle_force:.3f}V")
-                print(f"  Front Potentiometer (ai22): {handle_position:.3f}V  # Handle Position")
-                print(f"  Back Potentiometer (ai23):  {seat_position:.3f}V → {seat_position*100:.1f}  # Seat Position")
+                print(f"  Left Foot (ai16):    {left_foot:.3f}V")
+                print(f"  Right Foot (ai18):   {right_foot:.3f}V") 
+                print(f"  Handle Force (ai20):  {handle_force:.3f}V")
+                print(f"  Front Potentiometer (ai21): {handle_position:.3f}V  # Handle Position")
+                print(f"  Back Potentiometer (ai22):  {seat_position:.3f}V → {seat_position*100:.1f}  # Seat Position")
                 
                 # Check if all readings are identical and near 5V
                 all_same = all(abs(val - current_readings[0]) < 0.001 for val in current_readings)
