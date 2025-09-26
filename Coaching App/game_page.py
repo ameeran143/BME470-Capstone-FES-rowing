@@ -2,14 +2,14 @@
 """
 SENSOR CHANNEL MAPPING (NI-DAQ Dev2):
 ======================================
-ai0-ai16: [UNUSED]
-ai17: Left Foot Force Sensor
-ai18: [UNUSED]
-ai19: Right Foot Force Sensor
-ai20: [UNUSED]
-ai21: Handle Force Sensor
-ai22: Front Potentiometer → Handle Position
-ai23: Back Potentiometer → Seat Position (converted: voltage * 100)
+ai0-ai15: [UNUSED]
+ai16: Left Foot Force Sensor
+ai17: [UNUSED]
+ai18: Right Foot Force Sensor
+ai19: [UNUSED]
+ai20: Handle Force Sensor
+ai21: Front Potentiometer → Handle Position
+ai22: Back Potentiometer → Seat Position (converted: voltage * 100)
 
 
 a16:23
@@ -41,12 +41,12 @@ class SharedStats:
         self.last_update_time = time.time()  # For distance calculations
 
         # sensor data
-        self.handle_force = []  # Handle force (ai21)
-        self.handle_position = []  # Front potentiometer (ai22) - handle position sensor
-        self.raw_seat_pos = []  # Back potentiometer (ai23) - raw collected seat position at each time point
+        self.handle_force = []  # Handle force (ai20)
+        self.handle_position = []  # Front potentiometer (ai21) - handle position sensor
+        self.raw_seat_pos = []  # Back potentiometer (ai22) - raw collected seat position at each time point
         self.converted_seat_position = []  # converted seat position at each time point
-        self.L_foot_force = []  # Left foot force (ai17)
-        self.R_foot_force = []  # Right foot force (ai19)
+        self.L_foot_force = []  # Left foot force (ai16)
+        self.R_foot_force = []  # Right foot force (ai18)
         self.switch_press = []  # [REMOVED - no switch sensor in new mapping]
         self.stroke_time = []  # start time of each stroke
         self.stroke_duration = []
@@ -106,7 +106,7 @@ class SharedStats:
         
         with open(self.stats_file_path, 'w', newline='') as file:
             writer = csv.writer(file)
-            writer.writerow(["Time Elapsed (min)", "Stroke Rate", "Average Power", "Score", "Misses", "Handle Force", "Handle Position", "Raw Seat Position", "Converted Seat Position", "Left Foot Force", "Right Foot Force"])
+            writer.writerow(["Time Elapsed (min)", "Stroke Rate", "Average Power", "Score", "Misses", "Handle Force (ai20)", "Handle Position (ai21)", "Raw Seat Position (ai22)", "Converted Seat Position", "Left Foot Force (ai16)", "Right Foot Force (ai18)"])
 
     def update_stats(self):
         # update time
@@ -116,17 +116,31 @@ class SharedStats:
         if not self.is_mac and self.hardware_mode:
             try:
                 with nidaqmx.Task() as task:
-                    task.ai_channels.add_ai_voltage_chan("Dev2/ai17,ai19,ai21:23")  
+                    # Add channels individually with explicit voltage range
+                    task.ai_channels.add_ai_voltage_chan("Dev2/ai16", min_val=-10.0, max_val=10.0)  # Left foot
+                    task.ai_channels.add_ai_voltage_chan("Dev2/ai18", min_val=-10.0, max_val=10.0)  # Right foot
+                    task.ai_channels.add_ai_voltage_chan("Dev2/ai20", min_val=-10.0, max_val=10.0)  # Handle force
+                    task.ai_channels.add_ai_voltage_chan("Dev2/ai21", min_val=-10.0, max_val=10.0)  # Handle position
+                    task.ai_channels.add_ai_voltage_chan("Dev2/ai22", min_val=-10.0, max_val=10.0)  # Seat position
                     data = task.read(number_of_samples_per_channel=1)
-                    self.pos = data[4]*100  # Back potentiometer (ai23) - seat position
                     
-                    self.raw_seat_pos.append(self.pos)  # Back potentiometer (ai23)
-                    self.handle_position.append(data[3])  # Front potentiometer (ai22)
-                    self.handle_force.append(data[2])  # Handle force sensor (ai21)
-                    self.L_foot_force.append(data[0])  # Left foot force (ai17)
-                    self.R_foot_force.append(data[1])  # Right foot force (ai19)
+                    # Extract single values from nested list structure
+                    left_foot = data[0][0] if isinstance(data[0], list) else data[0]
+                    right_foot = data[1][0] if isinstance(data[1], list) else data[1]
+                    handle_force = data[2][0] if isinstance(data[2], list) else data[2]
+                    handle_position = data[3][0] if isinstance(data[3], list) else data[3]
+                    seat_position = data[4][0] if isinstance(data[4], list) else data[4]
+                    
+                    self.pos = seat_position * 100  # Back potentiometer (ai22) - seat position
+                    
+                    self.raw_seat_pos.append(self.pos)  # Back potentiometer (ai22)
+                    self.handle_position.append(handle_position)  # Front potentiometer (ai21)
+                    self.handle_force.append(handle_force)  # Handle force sensor (ai20)
+                    self.L_foot_force.append(left_foot)  # Left foot force (ai16)
+                    self.R_foot_force.append(right_foot)  # Right foot force (ai18)
                     # Note: switch_press removed - no switch sensor in new mapping
                     self.temp_time.append(time.time())
+                    self.hardware_connected = True
 
                 # update power (need to verify)
                 if len(self.raw_seat_pos) > 1 and hasattr(self, 'temp_time'):
@@ -136,6 +150,7 @@ class SharedStats:
                 return  # Exit early if hardware read was successful
             except Exception as e:
                 print(f"Hardware error: {e}")
+                self.hardware_connected = False
                 # Fall through to simulation mode
         
         # Simulation mode (always used on macOS, fallback for Windows/Linux)
@@ -266,88 +281,91 @@ class GamePage(wx.Panel):
             print('is pressed', self.shared_state.is_pressed)
             if self.shared_state.switch_press:
                 print('switch press', self.shared_state.switch_press[-1])
-        # Simulate seat position for FES indicator (no visual seat anymore)
-        if not self.shared_state.raw_seat_pos:
-            self.shared_state.raw_seat_pos.append(self.shared_state.back_max_pos)
-        else:
-            self.shared_state.converted_seat_position.append(self.shared_state.convert_raw_to_scale(self.shared_state.raw_seat_pos[-1]))
-            next_pos = self.shared_state.converted_seat_position[-1] + self.shared_state.seat_direction 
-            self.shared_state.raw_seat_pos.append(self.shared_state.convert_scale_to_raw(next_pos)) 
-            
-            # Simulation logic
-            if next_pos >= 100:
-                self.shared_state.seat_direction = -3
-            elif next_pos <= 0:
-                self.shared_state.seat_direction = 3
-            if self.shared_state.is_pressed:
-                self.shared_state.switch_press.append(5)
+        
+        # Only simulate data if hardware is not connected (simulation mode)
+        if not self.shared_state.hardware_connected:
+            # Simulate seat position for FES indicator (no visual seat anymore)
+            if not self.shared_state.raw_seat_pos:
+                self.shared_state.raw_seat_pos.append(self.shared_state.back_max_pos)
             else:
-                self.shared_state.switch_press.append(0)
-            
-            self.shared_state.converted_seat_position.append(next_pos)
-        
-        # Generate realistic fake power data
-        import random
-        if not hasattr(self.shared_state, 'temp_time'):
-            self.shared_state.temp_time = []
-        self.shared_state.temp_time.append(time.time())
-        
-        # Add some initial fake data if lists are empty
-        if not self.shared_state.avg_power:
-            # Start with some baseline values
-            initial_power = random.uniform(85, 125)
-            self.shared_state.temp_power.append(initial_power)
-            self.shared_state.avg_power.append(initial_power)
-            self.shared_state.stroke_rate.append(random.uniform(24, 26))
-        
-        # Simulate realistic power output (varies between 50-200W with rowing motion)
-        if self.shared_state.converted_seat_position:
-            current_pos = self.shared_state.converted_seat_position[-1]
-            
-            # Power varies with rowing phase - higher during drive phase (moving toward front)
-            if len(self.shared_state.converted_seat_position) >= 2:
-                prev_pos = self.shared_state.converted_seat_position[-2]
-                is_driving = current_pos > prev_pos  # Moving toward front (drive phase)
+                self.shared_state.converted_seat_position.append(self.shared_state.convert_raw_to_scale(self.shared_state.raw_seat_pos[-1]))
+                next_pos = self.shared_state.converted_seat_position[-1] + self.shared_state.seat_direction 
+                self.shared_state.raw_seat_pos.append(self.shared_state.convert_scale_to_raw(next_pos)) 
                 
-                if is_driving and current_pos > 50:  # High power during drive phase
-                    base_power = random.uniform(120, 200)
-                elif is_driving:  # Moderate power during early drive
-                    base_power = random.uniform(80, 150)
-                else:  # Lower power during recovery phase
-                    base_power = random.uniform(30, 80)
-                
-                # Add some random variation
-                power_variation = random.uniform(-20, 20)
-                simulated_power = max(0, base_power + power_variation)
-                
-                self.shared_state.temp_power.append(simulated_power)
-                self.shared_state.avg_power.append(sum(self.shared_state.temp_power) / len(self.shared_state.temp_power))
-                
-                # Simulate stroke rate (strokes per minute) - typical rowing is 20-35 SPM
-                if not self.shared_state.stroke_rate:
-                    simulated_stroke_rate = random.uniform(22, 28)  # Start with moderate pace
+                # Simulation logic
+                if next_pos >= 100:
+                    self.shared_state.seat_direction = -3
+                elif next_pos <= 0:
+                    self.shared_state.seat_direction = 3
+                if self.shared_state.is_pressed:
+                    self.shared_state.switch_press.append(5)
                 else:
-                    # Vary stroke rate slightly around current rate
-                    current_rate = self.shared_state.stroke_rate[-1]
-                    rate_change = random.uniform(-2, 2)
-                    simulated_stroke_rate = max(18, min(35, current_rate + rate_change))
+                    self.shared_state.switch_press.append(0)
                 
-                self.shared_state.stroke_rate.append(simulated_stroke_rate)
+                self.shared_state.converted_seat_position.append(next_pos)
+            
+            # Generate realistic fake power data (only in simulation mode)
+            import random
+            if not hasattr(self.shared_state, 'temp_time'):
+                self.shared_state.temp_time = []
+            self.shared_state.temp_time.append(time.time())
+            
+            # Add some initial fake data if lists are empty
+            if not self.shared_state.avg_power:
+                # Start with some baseline values
+                initial_power = random.uniform(85, 125)
+                self.shared_state.temp_power.append(initial_power)
+                self.shared_state.avg_power.append(initial_power)
+                self.shared_state.stroke_rate.append(random.uniform(24, 26))
+            
+            # Simulate realistic power output (varies between 50-200W with rowing motion)
+            if self.shared_state.converted_seat_position:
+                current_pos = self.shared_state.converted_seat_position[-1]
+                
+                # Power varies with rowing phase - higher during drive phase (moving toward front)
+                if len(self.shared_state.converted_seat_position) >= 2:
+                    prev_pos = self.shared_state.converted_seat_position[-2]
+                    is_driving = current_pos > prev_pos  # Moving toward front (drive phase)
+                    
+                    if is_driving and current_pos > 50:  # High power during drive phase
+                        base_power = random.uniform(120, 200)
+                    elif is_driving:  # Moderate power during early drive
+                        base_power = random.uniform(80, 150)
+                    else:  # Lower power during recovery phase
+                        base_power = random.uniform(30, 80)
+                    
+                    # Add some random variation
+                    power_variation = random.uniform(-20, 20)
+                    simulated_power = max(0, base_power + power_variation)
+                    
+                    self.shared_state.temp_power.append(simulated_power)
+                    self.shared_state.avg_power.append(sum(self.shared_state.temp_power) / len(self.shared_state.temp_power))
+                    
+                    # Simulate stroke rate (strokes per minute) - typical rowing is 20-35 SPM
+                    if not self.shared_state.stroke_rate:
+                        simulated_stroke_rate = random.uniform(22, 28)  # Start with moderate pace
+                    else:
+                        # Vary stroke rate slightly around current rate
+                        current_rate = self.shared_state.stroke_rate[-1]
+                        rate_change = random.uniform(-2, 2)
+                        simulated_stroke_rate = max(18, min(35, current_rate + rate_change))
+                    
+                    self.shared_state.stroke_rate.append(simulated_stroke_rate)
+            
+            # Generate fake accuracy data (simulate some successful and missed FES activations)
+            if len(self.shared_state.converted_seat_position) > 10:  # Wait a bit before starting accuracy simulation
+                # Randomly simulate button presses at appropriate times
+                if random.random() < 0.05:  # 5% chance per update to simulate a button press
+                    current_pos = self.shared_state.raw_seat_pos[-1] if self.shared_state.raw_seat_pos else 0
+                    
+                    # Simulate success/failure based on timing accuracy (80% success rate)
+                    if random.random() < 0.8:  # 80% success rate
+                        self.shared_state.score += 1
+                    else:
+                        self.shared_state.misses += 1
         
-        # Calculate realistic distance
+        # Calculate realistic distance (for both hardware and simulation mode)
         self.shared_state.calculate_distance()
-        
-        # Generate fake accuracy data (simulate some successful and missed FES activations)
-        if len(self.shared_state.converted_seat_position) > 10:  # Wait a bit before starting accuracy simulation
-            # Randomly simulate button presses at appropriate times
-            if random.random() < 0.05:  # 5% chance per update to simulate a button press
-                current_pos = self.shared_state.raw_seat_pos[-1] if self.shared_state.raw_seat_pos else 0
-                
-                # Simulate success/failure based on timing accuracy (80% success rate)
-                if random.random() < 0.8:  # 80% success rate
-                    self.shared_state.score += 1
-                else:
-                    self.shared_state.misses += 1
         
         self.stats_panel.update_stats()
         self.rowing_scene_panel.update_scene()
