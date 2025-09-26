@@ -1,4 +1,16 @@
 # game page
+"""
+SENSOR CHANNEL MAPPING (NI-DAQ Dev4):
+======================================
+ai0: Switch Sensor (0V = pressed, 5V = released, threshold at 2.5V)
+ai1: [UNUSED]
+ai2: Left Foot Force Sensor
+ai3: [UNUSED]  
+ai4: Right Foot Force Sensor
+ai5: Handle Force Sensor
+ai6: Front Potentiometer → Handle Position
+ai7: Back Potentiometer → Seat Position (converted: voltage * 100)
+"""
 import os
 import wx
 import time
