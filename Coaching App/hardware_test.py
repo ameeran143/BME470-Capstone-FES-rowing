@@ -42,15 +42,19 @@ def test_sensor_readings():
     print("\n🔍 Testing sensor readings...")
     print("Press Ctrl+C to stop\n")
     
+    # Store previous readings to detect changes
+    previous_readings = [0, 0, 0, 0, 0]
+    stable_count = 0
+    
     try:
         while True:
             with nidaqmx.Task() as task:
-                # Add each channel individually
-                task.ai_channels.add_ai_voltage_chan("Dev2/ai17")
-                task.ai_channels.add_ai_voltage_chan("Dev2/ai19") 
-                task.ai_channels.add_ai_voltage_chan("Dev2/ai21")
-                task.ai_channels.add_ai_voltage_chan("Dev2/ai22")
-                task.ai_channels.add_ai_voltage_chan("Dev2/ai23")
+                # Add each channel individually with explicit voltage range
+                task.ai_channels.add_ai_voltage_chan("Dev2/ai17", min_val=-10.0, max_val=10.0)
+                task.ai_channels.add_ai_voltage_chan("Dev2/ai19", min_val=-10.0, max_val=10.0) 
+                task.ai_channels.add_ai_voltage_chan("Dev2/ai21", min_val=-10.0, max_val=10.0)
+                task.ai_channels.add_ai_voltage_chan("Dev2/ai22", min_val=-10.0, max_val=10.0)
+                task.ai_channels.add_ai_voltage_chan("Dev2/ai23", min_val=-10.0, max_val=10.0)
                 data = task.read(number_of_samples_per_channel=1)
                 
                 # Extract single values from the nested list structure
@@ -60,12 +64,37 @@ def test_sensor_readings():
                 handle_position = data[3][0] if isinstance(data[3], list) else data[3]
                 seat_position = data[4][0] if isinstance(data[4], list) else data[4]
                 
+                current_readings = [left_foot, right_foot, handle_force, handle_position, seat_position]
+                
                 print(f"Sensor Readings at {time.strftime('%H:%M:%S')}:")
                 print(f"  Left Foot (ai17):    {left_foot:.3f}V")
                 print(f"  Right Foot (ai19):   {right_foot:.3f}V") 
                 print(f"  Handle Force (ai21):  {handle_force:.3f}V")
                 print(f"  Front Potentiometer (ai22): {handle_position:.3f}V  # Handle Position")
                 print(f"  Back Potentiometer (ai23):  {seat_position:.3f}V → {seat_position*100:.1f}  # Seat Position")
+                
+                # Check if all readings are identical and near 5V
+                all_same = all(abs(val - current_readings[0]) < 0.001 for val in current_readings)
+                near_5v = all(abs(val - 5.437) < 0.1 for val in current_readings)
+                
+                if all_same and near_5v:
+                    stable_count += 1
+                    if stable_count > 5:
+                        print("⚠️  WARNING: All sensors stuck at ~5.437V!")
+                        print("   This suggests a hardware/wiring issue:")
+                        print("   • Check sensor power connections")
+                        print("   • Verify signal wires are not shorted to power")
+                        print("   • Ensure sensors are properly grounded")
+                        print("   • Try physically moving/pressing sensors")
+                else:
+                    stable_count = 0
+                
+                # Check for changes from previous reading
+                changes = [abs(curr - prev) > 0.01 for curr, prev in zip(current_readings, previous_readings)]
+                if any(changes):
+                    print("📈 Changes detected!")
+                
+                previous_readings = current_readings
                 print("-" * 50)
                 
                 time.sleep(0.5)  # Update every 500ms
