@@ -3,7 +3,7 @@
 Enhanced Hardware Debugging Utility for FES-Rowing Application
 Alternative to NI MAX for device detection and comprehensive hardware testing.
 
-SENSOR CHANNEL MAPPING (NI-DAQ Dev4):
+SENSOR CHANNEL MAPPING (NI-DAQ Dev2):
 ======================================
 ai0: Switch Sensor (0V = pressed, 5V = released, threshold at 2.5V)
 ai1: [UNUSED]
@@ -26,7 +26,7 @@ class HardwareDebugger:
     def __init__(self):
         self.system_info = None
         self.devices = []
-        self.expected_device = "Dev4"
+        self.expected_device = "Dev2"
         
     def get_system_info(self):
         """Get comprehensive system information"""
@@ -139,7 +139,7 @@ class HardwareDebugger:
             return False
         return True
     
-    def test_channel_connectivity(self, device_name="Dev4"):
+    def test_channel_connectivity(self, device_name="Dev2"):
         """Test individual channel connectivity"""
         print(f"\n🔍 CHANNEL CONNECTIVITY TEST")
         print("=" * 50)
@@ -183,7 +183,7 @@ class HardwareDebugger:
         headers = ['Channel', 'Sensor Type', 'Current Reading', 'Status']
         print(tabulate(connectivity_results, headers=headers, tablefmt='grid'))
     
-    def test_rowing_specific_sensors(self, device_name="Dev4", duration=10):
+    def test_rowing_specific_sensors(self, device_name="Dev2", duration=10):
         """Test rowing-specific sensor functionality with live monitoring"""
         print(f"\n🚣 ROWING SENSOR LIVE TEST ({duration}s)")
         print("=" * 50)
@@ -261,7 +261,7 @@ def main():
             debugger.get_system_info()
             debugger.discover_devices()
         elif command == "analyze":
-            device = sys.argv[2] if len(sys.argv) > 2 else "Dev4"
+            device = sys.argv[2] if len(sys.argv) > 2 else "Dev2"
             debugger.analyze_device_capabilities(device)
         elif command == "test":
             debugger.test_channel_connectivity()

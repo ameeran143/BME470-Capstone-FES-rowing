@@ -1,6 +1,6 @@
 # game page
 """
-SENSOR CHANNEL MAPPING (NI-DAQ Dev4):
+SENSOR CHANNEL MAPPING (NI-DAQ Dev2):
 ======================================
 ai0: Switch Sensor (0V = pressed, 5V = released, threshold at 2.5V)
 ai1: [UNUSED]
@@ -112,7 +112,7 @@ class SharedStats:
         if not self.is_mac and self.hardware_mode:
             try:
                 with nidaqmx.Task() as task:
-                    task.ai_channels.add_ai_voltage_chan("Dev4/ai0:7")  
+                    task.ai_channels.add_ai_voltage_chan("Dev2/ai0:7")  
                     data = task.read(number_of_samples_per_channel=1)
                     self.pos = data[7][-1]*100
                     

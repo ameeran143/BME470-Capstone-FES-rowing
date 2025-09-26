@@ -3,7 +3,7 @@
 Hardware Testing Utility for FES-Rowing Application
 Run this script to test sensor connections before using the main application.
 
-SENSOR CHANNEL MAPPING (NI-DAQ Dev4):
+SENSOR CHANNEL MAPPING (NI-DAQ Dev2):
 ======================================
 ai0: Switch Sensor (0V = pressed, 5V = released, threshold at 2.5V)
 ai1: [UNUSED]
@@ -23,8 +23,8 @@ def test_hardware_connection():
     """Test if NI-DAQ device is connected and responsive"""
     try:
         with nidaqmx.Task() as task:
-            task.ai_channels.add_ai_voltage_chan("Dev4/ai0:7")
-            print("✅ NI-DAQ device 'Dev4' found and accessible")
+            task.ai_channels.add_ai_voltage_chan("Dev2/ai0:7")
+            print("✅ NI-DAQ device 'Dev2' found and accessible")
             return True
     except Exception as e:
         print(f"❌ Hardware connection failed: {e}")
@@ -38,7 +38,7 @@ def test_sensor_readings():
     try:
         while True:
             with nidaqmx.Task() as task:
-                task.ai_channels.add_ai_voltage_chan("Dev4/ai0:7")
+                task.ai_channels.add_ai_voltage_chan("Dev2/ai0:7")
                 data = task.read(number_of_samples_per_channel=1)
                 
                 print(f"Sensor Readings at {time.strftime('%H:%M:%S')}:")
@@ -65,7 +65,7 @@ def main():
     if not test_hardware_connection():
         print("\n💡 Troubleshooting tips:")
         print("  - Check NI-DAQ device is connected via USB/Ethernet")
-        print("  - Verify device name is 'Dev4' in NI MAX")
+        print("  - Verify device name is 'Dev2' in NI MAX")
         print("  - Install/update NI-DAQmx drivers")
         print("  - Try running as administrator")
         sys.exit(1)
