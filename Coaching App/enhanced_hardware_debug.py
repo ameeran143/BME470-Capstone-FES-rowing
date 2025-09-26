@@ -5,14 +5,14 @@ Alternative to NI MAX for device detection and comprehensive hardware testing.
 
 SENSOR CHANNEL MAPPING (NI-DAQ Dev2):
 ======================================
-ai0: Switch Sensor (0V = pressed, 5V = released, threshold at 2.5V)
-ai1: [UNUSED]
-ai2: Left Foot Force Sensor
-ai3: [UNUSED]  
-ai4: Right Foot Force Sensor
-ai5: Handle Force Sensor
-ai6: Front Potentiometer → Handle Position
-ai7: Back Potentiometer → Seat Position (converted: voltage * 100)
+ai0-ai16: [UNUSED]
+ai17: Left Foot Force Sensor
+ai18: [UNUSED]
+ai19: Right Foot Force Sensor
+ai20: [UNUSED]
+ai21: Handle Force Sensor
+ai22: Front Potentiometer → Handle Position
+ai23: Back Potentiometer → Seat Position (converted: voltage * 100)
 """
 
 import nidaqmx

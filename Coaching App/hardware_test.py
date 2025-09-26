@@ -5,14 +5,16 @@ Run this script to test sensor connections before using the main application.
 
 SENSOR CHANNEL MAPPING (NI-DAQ Dev2):
 ======================================
-ai0: Switch Sensor (0V = pressed, 5V = released, threshold at 2.5V)
-ai1: [UNUSED]
-ai2: Left Foot Force Sensor
-ai3: [UNUSED]  
-ai4: Right Foot Force Sensor
-ai5: Handle Force Sensor
-ai6: Front Potentiometer → Handle Position
-ai7: Back Potentiometer → Seat Position (converted: voltage * 100)
+ai0-ai16: [UNUSED]
+ai17: Left Foot Force Sensor
+ai18: [UNUSED]
+ai19: Right Foot Force Sensor
+ai20: [UNUSED]
+ai21: Handle Force Sensor
+ai22: Front Potentiometer → Handle Position
+ai23: Back Potentiometer → Seat Position (converted: voltage * 100)
+
+
 """
 
 import nidaqmx
@@ -23,7 +25,8 @@ def test_hardware_connection():
     """Test if NI-DAQ device is connected and responsive"""
     try:
         with nidaqmx.Task() as task:
-            task.ai_channels.add_ai_voltage_chan("Dev2/ai0:7")
+            # Test with the new channel mapping
+            task.ai_channels.add_ai_voltage_chan("Dev2/ai17,ai19,ai21:23")
             print("✅ NI-DAQ device 'Dev2' found and accessible")
             return True
     except Exception as e:
@@ -38,16 +41,15 @@ def test_sensor_readings():
     try:
         while True:
             with nidaqmx.Task() as task:
-                task.ai_channels.add_ai_voltage_chan("Dev2/ai0:7")
+                task.ai_channels.add_ai_voltage_chan("Dev2/ai17,ai19,ai21:23")
                 data = task.read(number_of_samples_per_channel=1)
                 
                 print(f"Sensor Readings at {time.strftime('%H:%M:%S')}:")
-                print(f"  Switch (ai0):      {data[0][-1]:.3f}V {'(PRESSED)' if data[0][-1] < 2.5 else '(RELEASED)'}")
-                print(f"  Left Foot (ai2):   {data[2][-1]:.3f}V")
-                print(f"  Right Foot (ai4):  {data[4][-1]:.3f}V") 
-                print(f"  Handle Force (ai5): {data[5][-1]:.3f}V")
-                print(f"  Handle Pos (ai6):  {data[6][-1]:.3f}V")
-                print(f"  Seat Pos (ai7):    {data[7][-1]:.3f}V → {data[7][-1]*100:.1f}")
+                print(f"  Left Foot (ai17):    {data[0]:.3f}V")
+                print(f"  Right Foot (ai19):   {data[1]:.3f}V") 
+                print(f"  Handle Force (ai21):  {data[2]:.3f}V")
+                print(f"  Front Potentiometer (ai22): {data[3]:.3f}V  # Handle Position")
+                print(f"  Back Potentiometer (ai23):  {data[4]:.3f}V → {data[4]*100:.1f}  # Seat Position")
                 print("-" * 50)
                 
                 time.sleep(0.5)  # Update every 500ms

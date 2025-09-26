@@ -2,14 +2,18 @@
 """
 SENSOR CHANNEL MAPPING (NI-DAQ Dev2):
 ======================================
-ai0: Switch Sensor (0V = pressed, 5V = released, threshold at 2.5V)
-ai1: [UNUSED]
-ai2: Left Foot Force Sensor
-ai3: [UNUSED]  
-ai4: Right Foot Force Sensor
-ai5: Handle Force Sensor
-ai6: Front Potentiometer → Handle Position
-ai7: Back Potentiometer → Seat Position (converted: voltage * 100)
+ai0-ai16: [UNUSED]
+ai17: Left Foot Force Sensor
+ai18: [UNUSED]
+ai19: Right Foot Force Sensor
+ai20: [UNUSED]
+ai21: Handle Force Sensor
+ai22: Front Potentiometer → Handle Position
+ai23: Back Potentiometer → Seat Position (converted: voltage * 100)
+
+
+a16:23
+
 """
 import os
 import wx
@@ -37,13 +41,13 @@ class SharedStats:
         self.last_update_time = time.time()  # For distance calculations
 
         # sensor data
-        self.handle_force = []
-        self.handle_position = []
-        self.raw_seat_pos = []  # raw collected seat position at each time point
+        self.handle_force = []  # Handle force (ai21)
+        self.handle_position = []  # Front potentiometer (ai22) - handle position sensor
+        self.raw_seat_pos = []  # Back potentiometer (ai23) - raw collected seat position at each time point
         self.converted_seat_position = []  # converted seat position at each time point
-        self.L_foot_force = []
-        self.R_foot_force = []
-        self.switch_press = []  # off = 5V, on = 0V
+        self.L_foot_force = []  # Left foot force (ai17)
+        self.R_foot_force = []  # Right foot force (ai19)
+        self.switch_press = []  # [REMOVED - no switch sensor in new mapping]
         self.stroke_time = []  # start time of each stroke
         self.stroke_duration = []
 
@@ -112,16 +116,16 @@ class SharedStats:
         if not self.is_mac and self.hardware_mode:
             try:
                 with nidaqmx.Task() as task:
-                    task.ai_channels.add_ai_voltage_chan("Dev2/ai0:7")  
+                    task.ai_channels.add_ai_voltage_chan("Dev2/ai17,ai19,ai21:23")  
                     data = task.read(number_of_samples_per_channel=1)
-                    self.pos = data[7][-1]*100
+                    self.pos = data[4]*100  # Back potentiometer (ai23) - seat position
                     
-                    self.raw_seat_pos.append(self.pos)
-                    self.handle_position.append(data[6][-1])
-                    self.handle_force.append(data[5][-1])
-                    self.L_foot_force.append(data[2][-1])
-                    self.R_foot_force.append(data[4][-1])
-                    self.switch_press.append(data[0][-1])
+                    self.raw_seat_pos.append(self.pos)  # Back potentiometer (ai23)
+                    self.handle_position.append(data[3])  # Front potentiometer (ai22)
+                    self.handle_force.append(data[2])  # Handle force sensor (ai21)
+                    self.L_foot_force.append(data[0])  # Left foot force (ai17)
+                    self.R_foot_force.append(data[1])  # Right foot force (ai19)
+                    # Note: switch_press removed - no switch sensor in new mapping
                     self.temp_time.append(time.time())
 
                 # update power (need to verify)
