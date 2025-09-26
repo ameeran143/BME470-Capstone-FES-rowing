@@ -145,12 +145,11 @@ class HardwareDebugger:
         print("=" * 50)
         
         channel_mapping = {
-            'ai0': 'Switch Sensor',
-            'ai2': 'Left Foot Force', 
-            'ai4': 'Right Foot Force',
-            'ai5': 'Handle Force',
-            'ai6': 'Handle Position', 
-            'ai7': 'Seat Position'
+            'ai17': 'Left Foot Force',
+            'ai19': 'Right Foot Force',
+            'ai21': 'Handle Force',
+            'ai22': 'Front Potentiometer (Handle Position)', 
+            'ai23': 'Back Potentiometer (Seat Position)'
         }
         
         connectivity_results = []
@@ -194,19 +193,18 @@ class HardwareDebugger:
             start_time = time.time()
             while time.time() - start_time < duration:
                 with nidaqmx.Task() as task:
-                    task.ai_channels.add_ai_voltage_chan(f"{device_name}/ai0:7")
+                    task.ai_channels.add_ai_voltage_chan(f"{device_name}/ai17,ai19,ai21:23")
                     data = task.read(number_of_samples_per_channel=1)
                     
-                    # Extract key sensor values
-                    switch_val = data[0][-1] if isinstance(data[0], list) else data[0]
-                    seat_pos_raw = data[7][-1] if isinstance(data[7], list) else data[7]
+                    # Extract key sensor values (new mapping)
+                    left_foot = data[0] if isinstance(data[0], (int, float)) else data[0][-1]  # ai17
+                    right_foot = data[1] if isinstance(data[1], (int, float)) else data[1][-1]  # ai19
+                    handle_force = data[2] if isinstance(data[2], (int, float)) else data[2][-1]  # ai21
+                    handle_pos = data[3] if isinstance(data[3], (int, float)) else data[3][-1]  # ai22
+                    seat_pos_raw = data[4] if isinstance(data[4], (int, float)) else data[4][-1]  # ai23
                     seat_pos_converted = seat_pos_raw * 100
-                    handle_force = data[5][-1] if isinstance(data[5], list) else data[5]
                     
-                    # Status indicators
-                    switch_status = "PRESSED" if switch_val < 2.5 else "RELEASED"
-                    
-                    print(f"\r🔄 Switch: {switch_status:<8} | Seat: {seat_pos_converted:6.1f} | Handle: {handle_force:6.3f}V", end="")
+                    print(f"\r🔄 L.Foot: {left_foot:5.2f} | R.Foot: {right_foot:5.2f} | Handle: {handle_force:5.2f} | Seat: {seat_pos_converted:6.1f}", end="")
                     time.sleep(0.2)
                     
         except KeyboardInterrupt:

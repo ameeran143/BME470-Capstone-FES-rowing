@@ -23,7 +23,7 @@ def check_prerequisites():
     # Check hardware connection
     try:
         with nidaqmx.Task() as task:
-            task.ai_channels.add_ai_voltage_chan("Dev2/ai0:7")
+            task.ai_channels.add_ai_voltage_chan("Dev2/ai17,ai19,ai21:23")
             print("✅ Hardware connection verified")
     except Exception as e:
         print(f"❌ Hardware not connected: {e}")
