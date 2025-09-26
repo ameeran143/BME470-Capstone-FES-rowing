@@ -53,12 +53,19 @@ def test_sensor_readings():
                 task.ai_channels.add_ai_voltage_chan("Dev2/ai23")
                 data = task.read(number_of_samples_per_channel=1)
                 
+                # Extract single values from the nested list structure
+                left_foot = data[0][0] if isinstance(data[0], list) else data[0]
+                right_foot = data[1][0] if isinstance(data[1], list) else data[1]
+                handle_force = data[2][0] if isinstance(data[2], list) else data[2]
+                handle_position = data[3][0] if isinstance(data[3], list) else data[3]
+                seat_position = data[4][0] if isinstance(data[4], list) else data[4]
+                
                 print(f"Sensor Readings at {time.strftime('%H:%M:%S')}:")
-                print(f"  Left Foot (ai17):    {data[0]:.3f}V")
-                print(f"  Right Foot (ai19):   {data[1]:.3f}V") 
-                print(f"  Handle Force (ai21):  {data[2]:.3f}V")
-                print(f"  Front Potentiometer (ai22): {data[3]:.3f}V  # Handle Position")
-                print(f"  Back Potentiometer (ai23):  {data[4]:.3f}V → {data[4]*100:.1f}  # Seat Position")
+                print(f"  Left Foot (ai17):    {left_foot:.3f}V")
+                print(f"  Right Foot (ai19):   {right_foot:.3f}V") 
+                print(f"  Handle Force (ai21):  {handle_force:.3f}V")
+                print(f"  Front Potentiometer (ai22): {handle_position:.3f}V  # Handle Position")
+                print(f"  Back Potentiometer (ai23):  {seat_position:.3f}V → {seat_position*100:.1f}  # Seat Position")
                 print("-" * 50)
                 
                 time.sleep(0.5)  # Update every 500ms
