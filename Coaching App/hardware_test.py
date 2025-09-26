@@ -25,8 +25,12 @@ def test_hardware_connection():
     """Test if NI-DAQ device is connected and responsive"""
     try:
         with nidaqmx.Task() as task:
-            # Test with the new channel mapping
-            task.ai_channels.add_ai_voltage_chan("Dev2/ai17,ai19,ai21:23")
+            # Test with the new channel mapping - add each channel individually
+            task.ai_channels.add_ai_voltage_chan("Dev2/ai17")
+            task.ai_channels.add_ai_voltage_chan("Dev2/ai19") 
+            task.ai_channels.add_ai_voltage_chan("Dev2/ai21")
+            task.ai_channels.add_ai_voltage_chan("Dev2/ai22")
+            task.ai_channels.add_ai_voltage_chan("Dev2/ai23")
             print("✅ NI-DAQ device 'Dev2' found and accessible")
             return True
     except Exception as e:
@@ -41,7 +45,12 @@ def test_sensor_readings():
     try:
         while True:
             with nidaqmx.Task() as task:
-                task.ai_channels.add_ai_voltage_chan("Dev2/ai17,ai19,ai21:23")
+                # Add each channel individually
+                task.ai_channels.add_ai_voltage_chan("Dev2/ai17")
+                task.ai_channels.add_ai_voltage_chan("Dev2/ai19") 
+                task.ai_channels.add_ai_voltage_chan("Dev2/ai21")
+                task.ai_channels.add_ai_voltage_chan("Dev2/ai22")
+                task.ai_channels.add_ai_voltage_chan("Dev2/ai23")
                 data = task.read(number_of_samples_per_channel=1)
                 
                 print(f"Sensor Readings at {time.strftime('%H:%M:%S')}:")
