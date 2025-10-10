@@ -4,6 +4,7 @@ from start_page import StartPage
 from calib_page import CalibPage
 from game_page import GamePage
 from game_page import SharedStats
+from instructions import InstructionsPage
 
 class RowingApp(wx.App):
     def OnInit(self):
@@ -32,13 +33,16 @@ class MainFrame(wx.Frame):
         self.start_page = StartPage(self)
         self.calib_page = CalibPage(self, self.shared_state)
         self.game_page = GamePage(self, self.shared_state)
+        self.instructions_page = InstructionsPage(self)
         
         self.sizer.Add(self.start_page, 1, wx.EXPAND)
         self.sizer.Add(self.calib_page, 1, wx.EXPAND)
         self.sizer.Add(self.game_page, 1, wx.EXPAND)
+        self.sizer.Add(self.instructions_page, 1, wx.EXPAND)
         
         self.calib_page.Hide()
         self.game_page.Hide()
+        self.instructions_page.Hide()
         
         self.SetSizer(self.sizer)
         
@@ -64,6 +68,13 @@ class MainFrame(wx.Frame):
         self.current_panel.Hide()
         self.game_page.Show()
         self.current_panel = self.game_page
+        self.Refresh()
+        self.Layout()
+
+    def switch_to_instructions_page(self):
+        self.current_panel.Hide()
+        self.instructions_page.Show()
+        self.current_panel = self.instructions_page
         self.Refresh()
         self.Layout()
 

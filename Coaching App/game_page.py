@@ -23,6 +23,8 @@ from button import CustomButton
 import nidaqmx
 # import pygame
 import csv
+import math
+from PIL import Image, ImageDraw
 
 #Correct_Sound = pygame.mixer.Sound("Correct_Sound.wav")
 #Wrong_Sound = pygame.mixer.Sound("Wrong_Sound.wav")
@@ -236,6 +238,215 @@ class SharedStats:
     
     def stop_writing_stats(self):
         self.stats_file_path = None
+
+# ------------------------------------------------------------------------------------------------------------
+
+class SpriteManager:
+    """Manages sprite generation and caching for better graphics"""
+    
+    def __init__(self):
+        self.sprites = {}
+        self.generate_sprites()
+    
+    def generate_sprites(self):
+        """Generate beautiful sprites programmatically"""
+        # Generate palm tree sprite
+        self.sprites['palm_tree'] = self.create_palm_tree_sprite()
+        self.sprites['palm_tree_small'] = self.create_palm_tree_sprite(scale=0.7)
+        self.sprites['cloud'] = self.create_cloud_sprite()
+        self.sprites['boat'] = self.create_boat_sprite()
+    
+    def create_palm_tree_sprite(self, scale=1.0):
+        """Create a beautiful palm tree sprite with transparency"""
+        width = int(80 * scale)
+        height = int(140 * scale)
+        
+        # Create RGBA image with transparency
+        img = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        
+        trunk_x = width // 2
+        trunk_base_y = height
+        trunk_top_y = int(height * 0.35)
+        trunk_height = trunk_base_y - trunk_top_y
+        
+        # Draw trunk with segments (coconut palm style)
+        trunk_width = int(10 * scale)
+        num_segments = 6
+        
+        for i in range(num_segments):
+            seg_y_start = trunk_base_y - int(i * trunk_height / num_segments)
+            seg_y_end = trunk_base_y - int((i + 1) * trunk_height / num_segments)
+            
+            # Vary width slightly
+            seg_width = trunk_width - i
+            
+            # Brown color with variation
+            brown_shade = 90 - i * 5
+            trunk_color = (brown_shade, brown_shade - 25, 20)
+            
+            # Draw trunk segment
+            draw.rectangle(
+                [trunk_x - seg_width//2, seg_y_end,
+                 trunk_x + seg_width//2, seg_y_start],
+                fill=trunk_color
+            )
+            
+            # Add horizontal rings for texture
+            if i < num_segments - 1:
+                ring_y = seg_y_end
+                draw.ellipse(
+                    [trunk_x - seg_width//2 - 2, ring_y - 2,
+                     trunk_x + seg_width//2 + 2, ring_y + 2],
+                    fill=(brown_shade - 10, brown_shade - 30, 15)
+                )
+        
+        # Draw palm fronds (6 main fronds)
+        frond_center_x = trunk_x
+        frond_center_y = trunk_top_y
+        
+        # Main frond angles (spread out nicely)
+        frond_angles = [-60, -30, 0, 30, 60, 90]
+        
+        for angle in frond_angles:
+            rad = math.radians(angle)
+            
+            # Draw each frond as a curved shape
+            frond_length = int(50 * scale)
+            frond_segments = 5
+            
+            for seg in range(frond_segments):
+                t = seg / frond_segments
+                
+                # Calculate position along frond
+                dist = frond_length * t
+                x_offset = int(dist * math.cos(rad))
+                y_offset = int(dist * math.sin(rad))
+                
+                # Leaf width decreases along frond
+                leaf_width = int((25 - seg * 4) * scale)
+                leaf_height = int((12 - seg * 1.5) * scale)
+                
+                # Green with slight darkening toward tips
+                green_intensity = 140 - seg * 15
+                leaf_color = (34, green_intensity, 34, 200 - seg * 20)
+                
+                # Draw leaflet
+                leaf_x = frond_center_x + x_offset
+                leaf_y = frond_center_y + y_offset
+                
+                # Rotate leaflet slightly
+                draw.ellipse(
+                    [leaf_x - leaf_width//2, leaf_y - leaf_height//2,
+                     leaf_x + leaf_width//2, leaf_y + leaf_height//2],
+                    fill=leaf_color
+                )
+        
+        # Center crown
+        draw.ellipse(
+            [frond_center_x - int(18*scale), frond_center_y - int(18*scale),
+             frond_center_x + int(18*scale), frond_center_y + int(18*scale)],
+            fill=(34, 139, 34, 240)
+        )
+        
+        return self.pil_to_wx_bitmap(img)
+    
+    def create_cloud_sprite(self):
+        """Create a puffy cloud sprite"""
+        width, height = 120, 60
+        img = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        
+        # Multiple overlapping circles for cloud effect
+        cloud_positions = [
+            (20, 30, 25),   # (x, y, radius)
+            (40, 35, 30),
+            (65, 35, 28),
+            (85, 30, 25),
+            (50, 20, 22)
+        ]
+        
+        for x, y, r in cloud_positions:
+            draw.ellipse(
+                [x - r, y - r, x + r, y + r],
+                fill=(255, 255, 255, 200)
+            )
+        
+        return self.pil_to_wx_bitmap(img)
+    
+    def create_boat_sprite(self):
+        """Create a detailed rowing boat sprite"""
+        width, height = 100, 60
+        img = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        
+        boat_y = 30
+        
+        # Boat hull (polygon for realistic shape)
+        hull_points = [
+            (15, boat_y),                    # Front point
+            (20, boat_y + 15),               # Front bottom
+            (80, boat_y + 15),               # Back bottom
+            (85, boat_y),                    # Back point
+            (82, boat_y - 3),                # Back top
+            (18, boat_y - 3),                # Front top
+        ]
+        draw.polygon(hull_points, fill=(101, 67, 33), outline=(80, 50, 20))
+        
+        # Rower head
+        head_x, head_y = 50, boat_y - 10
+        draw.ellipse(
+            [head_x - 6, head_y - 6, head_x + 6, head_y + 6],
+            fill=(255, 220, 177)
+        )
+        
+        # Body
+        draw.line(
+            [head_x, head_y + 6, head_x, boat_y + 5],
+            fill=(50, 50, 50),
+            width=3
+        )
+        
+        # Oar
+        draw.line(
+            [head_x - 30, boat_y - 2, head_x + 30, boat_y + 2],
+            fill=(139, 90, 43),
+            width=4
+        )
+        
+        # Oar blades
+        draw.ellipse(
+            [head_x - 38, boat_y - 6, head_x - 28, boat_y + 2],
+            fill=(200, 200, 200)
+        )
+        draw.ellipse(
+            [head_x + 28, boat_y - 2, head_x + 38, boat_y + 6],
+            fill=(200, 200, 200)
+        )
+        
+        return self.pil_to_wx_bitmap(img)
+    
+    def pil_to_wx_bitmap(self, pil_image):
+        """Convert PIL Image to wx.Bitmap with transparency support"""
+        width, height = pil_image.size
+        
+        # Convert to wx.Image first
+        wx_image = wx.Image(width, height)
+        
+        # Convert RGBA to RGB + Alpha
+        rgb_image = pil_image.convert('RGB')
+        wx_image.SetData(rgb_image.tobytes())
+        
+        # Set alpha channel if present
+        if pil_image.mode == 'RGBA':
+            alpha_data = pil_image.split()[3].tobytes()
+            wx_image.SetAlpha(alpha_data)
+        
+        return wx.Bitmap(wx_image)
+    
+    def get_sprite(self, name):
+        """Get a sprite by name"""
+        return self.sprites.get(name)
 
 # ------------------------------------------------------------------------------------------------------------
 
@@ -526,6 +737,9 @@ class RowingScenePanel(wx.Panel):
         self.SetMinSize((-1, 200))
         self.Bind(wx.EVT_PAINT, self.OnPaint)
 
+        # Initialize sprite manager for beautiful graphics
+        self.sprite_manager = SpriteManager()
+        
         # Background scrolling based on cumulative power/distance
         self.background_offset = 0.0  # How far the background has scrolled
         self.cumulative_distance = 0.0  # Total distance traveled
@@ -537,7 +751,16 @@ class RowingScenePanel(wx.Panel):
         self.bob_speed = 0.1  # Speed of bobbing animation
         
         # Current location theme
-        self.current_location = "North Pole"
+        self.current_location = "Hawaii"
+        
+        # Location milestones (distance in meters to reach each location)
+        self.location_milestones = [
+            ("Hawaii", 0),
+            ("Fiji", 500),
+            ("Tahiti", 1000),
+            ("Bora Bora", 1500),
+            ("Maldives", 2000),
+        ]
         
         # Predefined iceberg shapes to cycle through (no randomness)
         self.iceberg_templates = [
@@ -553,22 +776,60 @@ class RowingScenePanel(wx.Panel):
             [(0, 1), (0.3, 0.4), (0.6, 0.2), (0.9, 0.7), (1, 1)]
         ]
         self.locations = {
+            "Hawaii": {
+                "landscape_color": wx.Colour(194, 178, 128),  # Sandy beach
+                "accent_color": wx.Colour(34, 139, 34),       # Palm green
+                "water_color": wx.Colour(0, 191, 255),        # Turquoise
+                "sky_color": wx.Colour(135, 206, 250),        # Sky blue
+                "features": "palms"
+            },
+            "Fiji": {
+                "landscape_color": wx.Colour(194, 178, 128),  # Sandy beach
+                "accent_color": wx.Colour(34, 139, 34),       # Palm green
+                "water_color": wx.Colour(64, 224, 208),       # Turquoise
+                "sky_color": wx.Colour(135, 206, 250),        # Sky blue
+                "features": "palms"
+            },
+            "Tahiti": {
+                "landscape_color": wx.Colour(139, 69, 19),    # Volcanic rock
+                "accent_color": wx.Colour(34, 139, 34),       # Palm green
+                "water_color": wx.Colour(0, 206, 209),        # Dark turquoise
+                "sky_color": wx.Colour(135, 206, 250),        # Sky blue
+                "features": "palms"
+            },
+            "Bora Bora": {
+                "landscape_color": wx.Colour(255, 239, 213),  # White sand
+                "accent_color": wx.Colour(34, 139, 34),       # Palm green
+                "water_color": wx.Colour(127, 255, 212),      # Aquamarine
+                "sky_color": wx.Colour(135, 206, 250),        # Sky blue
+                "features": "palms"
+            },
+            "Maldives": {
+                "landscape_color": wx.Colour(255, 250, 240),  # Pristine sand
+                "accent_color": wx.Colour(34, 139, 34),       # Palm green
+                "water_color": wx.Colour(64, 224, 208),       # Crystal turquoise
+                "sky_color": wx.Colour(135, 206, 250),        # Sky blue
+                "features": "palms"
+            },
             "North Pole": {
                 "landscape_color": wx.Colour(240, 248, 255),  # Alice blue for ice
                 "accent_color": wx.Colour(176, 196, 222),     # Light steel blue
                 "water_color": wx.Colour(70, 130, 180),       # Steel blue
+                "sky_color": wx.Colour(135, 206, 250),        # Sky blue
                 "features": "icebergs"
             },
             "Amazon": {
                 "landscape_color": wx.Colour(34, 139, 34),    # Forest green
                 "accent_color": wx.Colour(107, 142, 35),      # Olive drab
                 "water_color": wx.Colour(139, 69, 19),        # Saddle brown (muddy water)
+                "sky_color": wx.Colour(135, 206, 250),        # Sky blue
                 "features": "trees"
             },
             "Mediterranean": {
                 "landscape_color": wx.Colour(255, 218, 185),  # Peach puff
                 "accent_color": wx.Colour(210, 180, 140),     # Tan
                 "water_color": wx.Colour(0, 191, 255),        # Deep sky blue
+                "sky_color": wx.Colour(135, 206, 250),        # Sky blue
                 "features": "cliffs"
             }
         }
@@ -590,34 +851,106 @@ class RowingScenePanel(wx.Panel):
         size = self.GetSize()
         width, height = size.width, size.height
         
+        # Create GraphicsContext for smoother rendering
+        try:
+            gc = wx.GraphicsContext.Create(dc)
+        except:
+            # Fallback if GraphicsContext not available
+            gc = None
+        
         # Get current location theme
         theme = self.locations[self.current_location]
         
-        # Draw sky background
-        dc.SetBrush(wx.Brush(wx.Colour(135, 206, 250)))
-        dc.Clear()
+        # Draw sky background with gradient
+        self.draw_gradient_sky(dc, gc, width, height, theme)
+        
+        # Reserve space for progress bar at bottom
+        progress_bar_height = 40
+        scene_height = height - progress_bar_height
         
         # Draw landscape/mountains in background
-        self.draw_landscape(dc, width, height, theme)
+        self.draw_landscape(dc, gc, width, scene_height, theme)
         
-        # Draw enhanced water
-        water_height = height // 3
-        water_y = height - water_height
-        self.draw_water(dc, width, water_y, water_height, theme)
+        # Draw enhanced water with reflections (reduced height for better sky visibility)
+        water_height = scene_height // 5  # Reduced from // 3 to // 5
+        water_y = scene_height - water_height
+        self.draw_water(dc, gc, width, water_y, water_height, theme)
         
-        # Draw boat at fixed position with bobbing motion
+        # Draw boat sprite at fixed position (no bobbing)
         boat_x = int(width * self.boat_x_position)
-        boat_y = water_y - 20 + int(self.boat_bob_offset)
-        self.draw_boat(dc, boat_x, boat_y)
+        boat_y = water_y - 30  # Removed bobbing offset
+        self.draw_boat_sprite(dc, boat_x, boat_y)
         
-        # Draw location-specific features
-        self.draw_location_features(dc, width, height, theme)
+        # Draw location-specific features (clouds, etc.)
+        self.draw_location_features(dc, gc, width, scene_height, theme)
+        
+        # Draw progress bar at the bottom
+        self.draw_progress_bar(dc, width, height, progress_bar_height)
 
-    def draw_landscape(self, dc, width, height, theme):
+    def draw_gradient_sky(self, dc, gc, width, height, theme):
+        """Draw gradient sky background"""
+        if gc:
+            # Create gradient from top to bottom
+            sky_color = theme["sky_color"]
+            
+            # Lighter at horizon, darker at top
+            color_top = wx.Colour(
+                max(0, sky_color.Red() - 30),
+                max(0, sky_color.Green() - 30),
+                max(0, sky_color.Blue() - 30)
+            )
+            color_bottom = wx.Colour(
+                min(255, sky_color.Red() + 40),
+                min(255, sky_color.Green() + 40),
+                min(255, sky_color.Blue() + 40)
+            )
+            
+            # Create linear gradient brush
+            gradient = gc.CreateLinearGradientBrush(
+                0, 0, 0, height,
+                color_top, color_bottom
+            )
+            gc.SetBrush(gradient)
+            gc.DrawRectangle(0, 0, width, height)
+        else:
+            # Fallback to solid color
+            dc.SetBrush(wx.Brush(theme["sky_color"]))
+            dc.SetPen(wx.TRANSPARENT_PEN)
+            dc.DrawRectangle(0, 0, width, height)
+
+    def draw_landscape(self, dc, gc, width, height, theme):
         """Draw scrolling background landscape"""
         landscape_height = height // 2
         
-        if theme["features"] == "icebergs":
+        if theme["features"] == "palms":
+            # Draw sandy beach/island in background with gradient
+            # Position beach to align with water line
+            beach_y = height - (height // 5) - (height // 6)  # Above water line
+            beach_height = height // 4
+            
+            if gc:
+                # Gradient sand from darker to lighter
+                sand_color = theme["landscape_color"]
+                sand_dark = wx.Colour(
+                    max(0, sand_color.Red() - 30),
+                    max(0, sand_color.Green() - 30),
+                    max(0, sand_color.Blue() - 30)
+                )
+                gradient = gc.CreateLinearGradientBrush(
+                    0, beach_y, 0, beach_y + beach_height,
+                    sand_dark, sand_color
+                )
+                gc.SetBrush(gradient)
+                gc.DrawRectangle(0, beach_y, width, beach_height)
+            else:
+                dc.SetBrush(wx.Brush(theme["landscape_color"]))
+                dc.SetPen(wx.TRANSPARENT_PEN)
+                dc.DrawRectangle(0, beach_y, width, beach_height)
+            
+            # Draw palm tree sprites in background
+            self.draw_background_palm_sprites(dc, width, height, theme)
+            
+        elif theme["features"] == "icebergs":
             # Draw icy mountains/icebergs that scroll with randomness
             dc.SetBrush(wx.Brush(theme["landscape_color"]))
             dc.SetPen(wx.TRANSPARENT_PEN)
@@ -680,6 +1013,42 @@ class RowingScenePanel(wx.Panel):
                     iceberg_x + iceberg_width//2 > -100):
                     dc.DrawPolygon(points)
 
+    def draw_background_palm_sprites(self, dc, width, height, theme):
+        """Draw palm tree sprites in the background with scrolling"""
+        palm_spacing = width // 3
+        beach_y = height // 2
+        
+        # Calculate scroll offset for parallax effect
+        scroll_offset = int(self.background_offset * 0.5) % (width * 2)
+        
+        # Get palm tree sprites
+        palm_tree = self.sprite_manager.get_sprite('palm_tree')
+        palm_tree_small = self.sprite_manager.get_sprite('palm_tree_small')
+        
+        if not palm_tree or not palm_tree_small:
+            return
+        
+        # Draw multiple palm trees across sections
+        for repeat in range(-1, 4):
+            section_x = repeat * palm_spacing * 4 - scroll_offset
+            
+            # 4 palm trees per section at fixed positions
+            for i in range(4):
+                palm_x = section_x + i * palm_spacing
+                
+                # Alternate between sizes for variety
+                sprite = palm_tree if i % 2 == 0 else palm_tree_small
+                sprite_width = sprite.GetWidth()
+                sprite_height = sprite.GetHeight()
+                
+                # Position palm tree on beach
+                palm_draw_x = palm_x - sprite_width // 2
+                palm_draw_y = beach_y - sprite_height
+                
+                # Only draw if on screen
+                if -150 <= palm_x <= width + 150:
+                    dc.DrawBitmap(sprite, palm_draw_x, palm_draw_y, True)
+
     def draw_random_floating_icebergs(self, dc, width, water_y, scroll_offset):
         """Draw predefined floating icebergs in the water"""
         
@@ -720,33 +1089,51 @@ class RowingScenePanel(wx.Panel):
                 if -50 <= iceberg_x <= width + 50:
                     dc.DrawPolygon(points)
 
-    def draw_water(self, dc, width, water_y, water_height, theme):
+    def draw_water(self, dc, gc, width, water_y, water_height, theme):
         """Draw enhanced water with gradient and animated waves"""
-        import math
         
         # Draw water base with gradient effect
         base_color = theme["water_color"]
         
-        # Create gradient from darker at top to lighter at bottom
-        for y_step in range(water_height):
-            progress = y_step / water_height
-            # Darker at top, lighter at bottom
-            r = int(base_color.Red() * (0.7 + 0.3 * progress))
-            g = int(base_color.Green() * (0.7 + 0.3 * progress))
-            b = int(base_color.Blue() * (0.7 + 0.3 * progress))
+        if gc:
+            # Use GraphicsContext for smoother gradient
+            water_dark = wx.Colour(
+                int(base_color.Red() * 0.7),
+                int(base_color.Green() * 0.7),
+                int(base_color.Blue() * 0.7)
+            )
+            water_light = wx.Colour(
+                min(255, int(base_color.Red() * 1.1)),
+                min(255, int(base_color.Green() * 1.1)),
+                min(255, int(base_color.Blue() * 1.1))
+            )
             
-            dc.SetPen(wx.Pen(wx.Colour(r, g, b)))
-            dc.DrawLine(0, water_y + y_step, width, water_y + y_step)
+            gradient = gc.CreateLinearGradientBrush(
+                0, water_y, 0, water_y + water_height,
+                water_dark, water_light
+            )
+            gc.SetBrush(gradient)
+            gc.DrawRectangle(0, water_y, width, water_height)
+        else:
+            # Fallback gradient
+            for y_step in range(water_height):
+                progress = y_step / water_height
+                # Darker at top, lighter at bottom
+                r = int(base_color.Red() * (0.7 + 0.3 * progress))
+                g = int(base_color.Green() * (0.7 + 0.3 * progress))
+                b = int(base_color.Blue() * (0.7 + 0.3 * progress))
+                
+                dc.SetPen(wx.Pen(wx.Colour(r, g, b)))
+                dc.DrawLine(0, water_y + y_step, width, water_y + y_step)
         
         # Draw animated wave patterns
-        self.draw_water_waves(dc, width, water_y, water_height)
+        self.draw_water_waves(dc, gc, width, water_y, water_height)
         
         # Draw surface reflections
         self.draw_water_reflections(dc, width, water_y, water_height)
 
-    def draw_water_waves(self, dc, width, water_y, water_height):
+    def draw_water_waves(self, dc, gc, width, water_y, water_height):
         """Draw animated wave patterns on water surface"""
-        import math
         
         # Calculate wave scroll offset
         wave_offset = self.background_offset * 0.8
@@ -787,49 +1174,62 @@ class RowingScenePanel(wx.Panel):
                 reflect_x = x - reflection_offset + (i * 8)  # Offset each layer
                 dc.DrawLine(reflect_x, reflect_y, reflect_x + 20, reflect_y)
 
-    def draw_boat(self, dc, x, y):
-        """Draw the rowing boat"""
+    def draw_boat_sprite(self, dc, x, y):
+        """Draw the rowing boat using sprite"""
         # Add wake behind boat if moving (based on power)
         current_power = self.shared_state.avg_power[-1] if self.shared_state.avg_power else 0
         if current_power > 10:  # Show wake when there's good power
-            dc.SetPen(wx.Pen(wx.Colour(255, 255, 255, 150), 2))
+            dc.SetPen(wx.Pen(wx.Colour(255, 255, 255, 180), 2))
             # Draw wake lines behind boat
-            for i in range(3):
-                wake_x = x - 40 - (i * 15)
-                dc.DrawLine(wake_x, y + 5 + i*3, wake_x + 20, y + 5 + i*3)
+            for i in range(4):
+                wake_x = x - 50 - (i * 12)
+                wake_y_offset = int(math.sin(self.background_offset * 0.1 + i) * 3)
+                dc.DrawLine(wake_x, y + 10 + i*2 + wake_y_offset, wake_x + 15, y + 10 + i*2 + wake_y_offset)
         
-        # Boat hull
-        dc.SetBrush(wx.Brush(wx.Colour(139, 69, 19)))  # Saddle brown
-        dc.SetPen(wx.Pen(wx.Colour(101, 67, 33), 2))
-        
-        boat_width = 60
-        boat_height = 20
-        boat_points = [
-            (x - boat_width//2, y),
-            (x - boat_width//3, y + boat_height),
-            (x + boat_width//3, y + boat_height),
-            (x + boat_width//2, y)
-        ]
-        dc.DrawPolygon(boat_points)
-        
-        # Rower (simple stick figure)
-        dc.SetBrush(wx.Brush(wx.Colour(255, 220, 177)))  # Skin color
-        dc.DrawCircle(x, y - 15, 8)  # Head
-        
-        # Body
-        dc.SetPen(wx.Pen(wx.Colour(0, 0, 0), 3))
-        dc.DrawLine(x, y - 7, x, y + 5)  # Body
-        
-        # Arms with oar - animate based on power
-        oar_extend = 25
-        if current_power > 15:  # More extended oars when rowing hard
-            oar_extend = 30
-        dc.DrawLine(x - oar_extend, y - 5, x + oar_extend, y)  # Oar
-        dc.DrawLine(x - 10, y - 5, x + 10, y)  # Arms
+        # Draw boat sprite
+        boat_sprite = self.sprite_manager.get_sprite('boat')
+        if boat_sprite:
+            sprite_width = boat_sprite.GetWidth()
+            sprite_height = boat_sprite.GetHeight()
+            
+            # Center the sprite at x, y
+            draw_x = x - sprite_width // 2
+            draw_y = y - sprite_height // 2
+            
+            # Draw the boat sprite with transparency
+            dc.DrawBitmap(boat_sprite, draw_x, draw_y, True)
+        else:
+            # Fallback if sprite not available
+            dc.SetBrush(wx.Brush(wx.Colour(139, 69, 19)))
+            dc.DrawRectangle(x - 30, y - 10, 60, 20)
 
-    def draw_location_features(self, dc, width, height, theme):
+    def draw_location_features(self, dc, gc, width, height, theme):
         """Draw scrolling location-specific decorative features"""
-        if theme["features"] == "icebergs":
+        if theme["features"] == "palms":
+            # Draw tropical cloud sprites in the sky
+            cloud_sprite = self.sprite_manager.get_sprite('cloud')
+            
+            if cloud_sprite:
+                # Calculate scroll offset for parallax effect
+                cloud_offset = int(self.background_offset * 0.15) % (width * 2)
+                
+                # Draw puffy clouds
+                cloud_spacing = width // 2
+                for repeat in range(-1, 4):
+                    for i in range(2):
+                        cloud_x = repeat * cloud_spacing * 2 + i * cloud_spacing - cloud_offset
+                        cloud_y = 40 + (i % 2) * 30
+                        
+                        if -150 <= cloud_x <= width + 150:
+                            # Draw cloud sprite
+                            sprite_width = cloud_sprite.GetWidth()
+                            sprite_height = cloud_sprite.GetHeight()
+                            dc.DrawBitmap(cloud_sprite, 
+                                        cloud_x - sprite_width // 2, 
+                                        cloud_y - sprite_height // 2, 
+                                        True)
+            
+        elif theme["features"] == "icebergs":
             # Draw floating icebergs in water that scroll with randomness
             dc.SetBrush(wx.Brush(wx.Colour(240, 248, 255)))
             water_y = height - height//3
@@ -850,9 +1250,62 @@ class RowingScenePanel(wx.Panel):
                 dc.SetBrush(wx.Brush(wx.Colour(34, 139, 34)))
                 dc.DrawCircle(pos, height//2-40, 12)
 
+    def draw_progress_bar(self, dc, width, height, bar_height):
+        """Draw a minimal progress bar showing distance to next location"""
+        # Calculate current location and progress
+        current_distance = self.shared_state.total_distance
+        
+        # Find current and next location
+        current_location_name = self.current_location
+        next_location_name = None
+        progress_to_next = 0.0
+        
+        for i, (location_name, milestone_distance) in enumerate(self.location_milestones):
+            if current_distance >= milestone_distance:
+                current_location_name = location_name
+                # Check if there's a next location
+                if i + 1 < len(self.location_milestones):
+                    next_location_name, next_milestone = self.location_milestones[i + 1]
+                    # Calculate progress to next location
+                    distance_between = next_milestone - milestone_distance
+                    distance_covered = current_distance - milestone_distance
+                    progress_to_next = min(1.0, distance_covered / distance_between) if distance_between > 0 else 0.0
+        
+        # Update current location if changed
+        if current_location_name != self.current_location:
+            self.current_location = current_location_name
+            self.location_label.SetLabel(f"Location: {self.current_location}")
+        
+        # Draw progress bar background
+        bar_y = height - bar_height
+        padding = 40
+        bar_x = padding
+        bar_width_total = width - (2 * padding)
+        bar_actual_height = 8  # Thin, minimal bar
+        bar_y_centered = bar_y + (bar_height - bar_actual_height) // 2
+        
+        # Background track
+        dc.SetBrush(wx.Brush(wx.Colour(220, 220, 220)))
+        dc.SetPen(wx.TRANSPARENT_PEN)
+        dc.DrawRoundedRectangle(bar_x, bar_y_centered, bar_width_total, bar_actual_height, 4)
+        
+        # Progress fill
+        if progress_to_next > 0 and next_location_name:
+            progress_width = int(bar_width_total * progress_to_next)
+            dc.SetBrush(wx.Brush(wx.Colour(76, 175, 80)))  # Green progress
+            dc.DrawRoundedRectangle(bar_x, bar_y_centered, progress_width, bar_actual_height, 4)
+            
+            # Draw text showing next location
+            dc.SetTextForeground(wx.Colour(100, 100, 100))
+            dc.SetFont(wx.Font(11, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+            progress_text = f"Next: {next_location_name} ({int(progress_to_next * 100)}%)"
+            text_width, text_height = dc.GetTextExtent(progress_text)
+            text_x = bar_x + bar_width_total - text_width - 10
+            text_y = bar_y_centered - text_height - 5
+            dc.DrawText(progress_text, text_x, text_y)
+
     def update_scene(self):
         """Update the scene based on rowing power"""
-        import math
         
         # Update background scrolling based on cumulative power
         if self.shared_state.avg_power:
@@ -866,20 +1319,14 @@ class RowingScenePanel(wx.Panel):
                 # Background scrolls based on cumulative distance
                 self.background_offset = self.cumulative_distance
         
-        # Animate boat bobbing (always bob, even without power)
-        self.boat_bob_offset = math.sin(self.cumulative_distance * 0.1) * 5  # 5 pixel amplitude
-        
-        # Add extra bobbing when rowing hard
-        if self.shared_state.avg_power and self.shared_state.avg_power[-1] > 15:
-            self.boat_bob_offset += math.sin(self.cumulative_distance * 0.3) * 2  # Extra motion when rowing hard
-        
         self.Refresh()
 
     def reset(self):
         """Reset the scene"""
         self.background_offset = 0.0  # Reset background scroll
         self.cumulative_distance = 0.0  # Reset distance
-        self.boat_bob_offset = 0.0  # Reset boat bobbing
+        self.current_location = "Hawaii"  # Reset to starting location
+        self.location_label.SetLabel(f"Location: {self.current_location}")
         self.Refresh()
 
 # ------------------------------------------------------------------------------------------------------------
