@@ -156,5 +156,5 @@ class StartPage(wx.Panel):
             wx.MessageBox("Tutorial coming soon.", "Info")
 
     def on_user_dashboard(self, event):
-        # Placeholder – no dashboard implemented yet
-        wx.MessageBox("User Dashboard not available yet.", "Info")
+        parent = self.GetParent()
+        parent.switch_to_dashboard_page()

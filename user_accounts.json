@@ -1,0 +1,45 @@
+{
+  "demo": {
+    "username": "demo",
+    "email": "demo@example.com",
+    "password_salt": "4957186ced6ae594dedade160d916caa",
+    "password_hash": "cdb5cb283c657dc7c52ffdc25314206c79a65a63038d0f624e74c9067177ac53",
+    "created_date": "2025-10-13T13:49:37.917325",
+    "total_sessions": 15,
+    "total_time": 120,
+    "best_stroke_rate": 32,
+    "achievements": {
+      "first_session": true,
+      "ten_sessions": true,
+      "perfect_form": false,
+      "endurance_master": false,
+      "speed_demon": true
+    },
+    "progress_level": 3,
+    "last_session": "2024-01-15"
+  },
+  "try": {
+    "username": "try",
+    "email": "",
+    "name": "Try",
+    "age": 25,
+    "height": 160,
+    "weight": 55,
+    "gender": "Female",
+    "password_salt": "7dba08d0e683d6b7486930a11f1acb7b",
+    "password_hash": "1406c0c94eb01794056d09d991f4e1088ecd39724076f87d4d51af46e9c8c5ef",
+    "created_date": "2025-10-14T23:15:56.549768",
+    "total_sessions": 0,
+    "total_time": 0,
+    "best_stroke_rate": 0,
+    "achievements": {
+      "first_session": false,
+      "ten_sessions": false,
+      "perfect_form": false,
+      "endurance_master": false,
+      "speed_demon": false
+    },
+    "progress_level": 1,
+    "last_session": null
+  }
+}
