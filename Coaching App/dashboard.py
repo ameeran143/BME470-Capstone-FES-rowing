@@ -831,12 +831,29 @@ class DashboardPage(wx.Panel):
 
         main_sizer = wx.BoxSizer(wx.VERTICAL)
         
-        # Header: "Hello, John" - aesthetically pleasing
+        # Create header sizer for title and button
+        header_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        
+        # Add stretch spacer to center the title
+        header_sizer.AddStretchSpacer()
+        
+        # Header: "Hello, John" - aesthetically pleasing and centered
         header = wx.StaticText(self, label="Hello, John")
         header_font = wx.Font(36, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
         header.SetFont(header_font)
         header.SetForegroundColour(wx.Colour(33, 37, 41))
-        main_sizer.Add(header, 0, wx.ALIGN_CENTER | wx.TOP, 25)
+        header_sizer.Add(header, 0, wx.ALIGN_CENTER_VERTICAL)
+        
+        # Add stretch spacer to push button to the right
+        header_sizer.AddStretchSpacer()
+        
+        # Add "Selection Screen" button in top right - using ModernCard like start page
+        self.selection_card = ModernCard(self, "Selection Screen", self.on_back_to_start, enabled=True, font_size=18)
+        self.selection_card.SetMinSize((200, 50))
+        header_sizer.Add(self.selection_card, 0, wx.ALIGN_CENTER_VERTICAL)
+        
+        # Add header sizer to main sizer
+        main_sizer.Add(header_sizer, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 25)
         
         # Add elegant spacing after header
         main_sizer.AddSpacer(20)
@@ -854,10 +871,6 @@ class DashboardPage(wx.Panel):
         self.section3_card = AchievementsCard(self)
         self.section4_card = MapCard(self)
         
-        # Add adventure map button
-        self.adventure_button = wx.Button(self, label="Adventure Map")
-        self.adventure_button.Bind(wx.EVT_BUTTON, self.on_adventure_map)
-        main_sizer.Add(self.adventure_button, 0, wx.ALIGN_CENTER | wx.TOP, 10)
 
         # Add sections with minimal padding to maximize space
         grid_sizer.Add(self.section1_card, 1, wx.EXPAND | wx.ALL, 10)
@@ -877,9 +890,3 @@ class DashboardPage(wx.Panel):
         parent = self.GetParent()
         parent.switch_to_start_page()
     
-    def on_adventure_map(self, event):
-        print("Adventure Map button clicked!")  # Debug print
-        parent = self.GetParent()
-        print(f"Parent: {parent}")  # Debug print
-        parent.switch_to_adventure_map_page()
-        print("switch_to_adventure_map_page called")  # Debug print
