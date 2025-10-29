@@ -14,7 +14,6 @@ ai20: Handle Force Sensor
 ai21: Front Potentiometer → Handle Position
 ai22: Back Potentiometer → Seat Position (converted: voltage * 100)
 
-
 """
 
 import nidaqmx
