@@ -30,7 +30,7 @@ from PIL import Image, ImageDraw
 #Wrong_Sound = pygame.mixer.Sound("assets/Wrong_Sound.wav")
 
 class SharedStats:
-    def __init__(self, playback_mode=False, playback_source=None):
+    def __init__(self, playback_mode=False, playback_source=None, sensor_mode=False, sensor_source=None):
         # stats table
         self.time_elapsed = 0
         self.time_start = time.time()
@@ -80,6 +80,10 @@ class SharedStats:
         self.playback_mode = playback_mode
         self.playback_source = playback_source
         
+        # SENSOR MODE - for reading from live hardware
+        self.sensor_mode = sensor_mode
+        self.sensor_source = sensor_source
+        
         # Hardware testing - Auto-detect OS
         import platform
         self.is_mac = platform.system() == 'Darwin'
@@ -87,7 +91,16 @@ class SharedStats:
         self.hardware_connected = False
         self.last_hardware_check = 0
         
-        if self.playback_mode:
+        if self.sensor_mode:
+            print("▶️  SENSOR MODE: Using live hardware sensor data")
+            if self.sensor_source:
+                self.hardware_connected = self.sensor_source.is_connected
+                # Use calibration from sensor reader (typical ranges)
+                if hasattr(self.sensor_source, 'seat_min') and hasattr(self.sensor_source, 'seat_max'):
+                    self.back_max_pos = self.sensor_source.seat_min  # Back position (most back) = 0%
+                    self.front_max_pos = self.sensor_source.seat_max  # Front position (most forward) = 100%
+                    print(f"  📏 Using seat range: {self.back_max_pos:.2f} (back) to {self.front_max_pos:.2f} (front)")
+        elif self.playback_mode:
             print("▶️  PLAYBACK MODE: Using recorded sensor data")
             self.hardware_connected = True  # Simulate hardware connected for playback
             
@@ -129,6 +142,84 @@ class SharedStats:
         # update time
         self.time_elapsed = int(time.time() - self.time_start) / 60
 
+        # SENSOR MODE - Read from live hardware
+        if self.sensor_mode and self.sensor_source:
+            try:
+                data = self.sensor_source.get_current_data()
+                
+                if data is not None:
+                    # Extract sensor values from hardware
+                    left_foot = data['left_foot']
+                    right_foot = data['right_foot']
+                    handle_force = data['handle_force']
+                    handle_position = data['handle_position']
+                    seat_position = data['seat_position']
+                    
+                    # Scale down seat position (voltage * 100 from sensor, need to scale to match expected range)
+                    self.pos = seat_position / 100.0  # Scale down to reasonable range
+                    
+                    self.raw_seat_pos.append(self.pos)
+                    self.handle_position.append(handle_position / 1000.0)  # Scale down
+                    self.handle_force.append(handle_force / 100.0)  # Scale down
+                    self.L_foot_force.append(left_foot / 100.0)  # Scale down
+                    self.R_foot_force.append(right_foot / 1000.0)  # Scale down
+                    
+                    if not hasattr(self, 'temp_time'):
+                        self.temp_time = []
+                    self.temp_time.append(time.time())
+                    
+                    # Convert raw seat position to 0-100 scale for the FES indicator
+                    if self.raw_seat_pos:
+                        # Clamp to calibration range
+                        if self.raw_seat_pos[-1] <= self.back_max_pos:
+                            self.raw_seat_pos[-1] = self.back_max_pos
+                        elif self.raw_seat_pos[-1] >= self.front_max_pos:
+                            self.raw_seat_pos[-1] = self.front_max_pos
+                        # Convert to 0-100 scale
+                        self.converted_seat_position.append(self.convert_raw_to_scale(self.raw_seat_pos[-1]))
+                    
+                    # Calculate FOOT-BASED POWER (more accurate for rowing machine)
+                    if len(self.raw_seat_pos) > 1 and len(self.temp_time) > 1:
+                        # Get foot forces (LC2 and LC4 are the dominant vertical force components)
+                        left_foot_force = abs(self.L_foot_force[-1])
+                        right_foot_force = abs(self.R_foot_force[-1])
+                        total_foot_force = left_foot_force + right_foot_force
+                        
+                        # Calculate seat velocity (change in position / time)
+                        seat_velocity = abs(self.raw_seat_pos[-1] - self.raw_seat_pos[-2]) / (self.temp_time[-1] - self.temp_time[-2])
+                        
+                        # Raw power = Force × Velocity
+                        raw_power = total_foot_force * seat_velocity
+                        
+                        # Empirical scaling to get realistic watts (50-200W range)
+                        # Scaling factor tuned to match typical rowing machine power output
+                        POWER_SCALING_FACTOR = 0.15
+                        instantaneous_power = raw_power * POWER_SCALING_FACTOR
+                        
+                        # Store instantaneous power and calculate rolling average
+                        self.temp_power.append(instantaneous_power)
+                        # Keep only last 50 samples for rolling average (~5 seconds at 10Hz)
+                        if len(self.temp_power) > 50:
+                            self.temp_power = self.temp_power[-50:]
+                        self.avg_power.append(sum(self.temp_power) / len(self.temp_power))
+                    
+                    # Update connection status
+                    self.hardware_connected = self.sensor_source.is_connected
+                    return  # Exit early if sensor read was successful
+                else:
+                    # Hardware disconnected or error
+                    self.hardware_connected = False
+                    if self.sensor_source:
+                        self.hardware_connected = self.sensor_source.is_connected
+                    
+            except Exception as e:
+                print(f"Sensor reading error: {e}")
+                import traceback
+                traceback.print_exc()
+                self.hardware_connected = False
+                if self.sensor_source:
+                    self.hardware_connected = self.sensor_source.is_connected
+        
         # PLAYBACK MODE - Read from recorded data
         if self.playback_mode and self.playback_source:
             try:
