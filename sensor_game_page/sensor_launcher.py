@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Sensor Game Page Launcher
-This script launches the game page with live hardware sensor data from NI-DAQ
+This script launches the application with live hardware sensor data from NI-DAQ
+Includes start page, calibration page, and game page
 """
 
 import wx
@@ -13,6 +14,9 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from game_page import GamePage, SharedStats
 from sensor_reader import SensorReader
+from start_page import StartPage
+from calib_page import CalibPage
+from instructions import InstructionsPage
 
 
 class SensorGameFrame(wx.Frame):
@@ -86,41 +90,87 @@ class SensorGameFrame(wx.Frame):
             )
             sys.exit(1)
         
-        # Create game page
+        # Create all pages
         try:
+            self.start_page = StartPage(self)
+            self.calib_page = CalibPage(self, self.shared_state, self.sensor_reader)
             self.game_page = GamePage(self, self.shared_state)
-            print("✅ Game page created")
+            self.instructions_page = InstructionsPage(self)
+            print("✅ All pages created")
         except Exception as e:
-            print(f"❌ Failed to create game page: {e}")
+            print(f"❌ Failed to create pages: {e}")
             import traceback
             traceback.print_exc()
             wx.MessageBox(
-                f"Failed to create game page:\n{e}",
+                f"Failed to create pages:\n{e}",
                 "Initialization Error",
                 wx.OK | wx.ICON_ERROR
             )
             sys.exit(1)
         
-        # Layout
-        sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self.game_page, 1, wx.EXPAND)
-        self.SetSizer(sizer)
+        # Layout - use sizer to hold all pages
+        self.sizer = wx.BoxSizer(wx.VERTICAL)
+        self.sizer.Add(self.start_page, 1, wx.EXPAND)
+        self.sizer.Add(self.calib_page, 1, wx.EXPAND)
+        self.sizer.Add(self.game_page, 1, wx.EXPAND)
+        self.sizer.Add(self.instructions_page, 1, wx.EXPAND)
+        
+        # Hide all pages except start page
+        self.calib_page.Hide()
+        self.game_page.Hide()
+        self.instructions_page.Hide()
+        
+        self.SetSizer(self.sizer)
+        self.current_panel = self.start_page
         
         # Bind close event
         self.Bind(wx.EVT_CLOSE, self.on_close)
         
         print("\n" + "=" * 60)
-        print("▶️  Game launched with live sensor data")
+        print("▶️  Application launched with live sensor data")
         print("=" * 60)
         print("\nStatus:")
         if self.sensor_reader.is_connected:
             print("  ✅ Hardware connected")
         else:
             print("  ⚠️  Hardware not connected - check console for errors")
-        print("\nControls:")
-        print("  • Close: Click window close button or Back button")
-        print("  • Data updates every 100ms (10 Hz)")
+        print("\nNavigation:")
+        print("  • Start Page: Select mode")
+        print("  • Calibration: Configure seat position range")
+        print("  • Game Page: Main rowing interface")
         print("\n")
+    
+    def switch_to_start_page(self):
+        """Switch to start/selection page"""
+        self.current_panel.Hide()
+        self.start_page.Show()
+        self.current_panel = self.start_page
+        self.Refresh()
+        self.Layout()
+    
+    def switch_to_calib_page(self):
+        """Switch to calibration page"""
+        self.current_panel.Hide()
+        self.calib_page.Show()
+        self.current_panel = self.calib_page
+        self.Refresh()
+        self.Layout()
+    
+    def switch_to_game_page(self):
+        """Switch to game page"""
+        self.current_panel.Hide()
+        self.game_page.Show()
+        self.current_panel = self.game_page
+        self.Refresh()
+        self.Layout()
+    
+    def switch_to_instructions_page(self):
+        """Switch to instructions/tutorial page"""
+        self.current_panel.Hide()
+        self.instructions_page.Show()
+        self.current_panel = self.instructions_page
+        self.Refresh()
+        self.Layout()
     
     def on_close(self, event):
         """Handle window close event"""
@@ -142,7 +192,7 @@ def main():
             frame.Show()
             app.MainLoop()
         else:
-            print("❌ Cannot start game - hardware not connected")
+            print("❌ Cannot start application - hardware not connected")
             sys.exit(1)
             
     except KeyboardInterrupt:
@@ -157,4 +207,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
