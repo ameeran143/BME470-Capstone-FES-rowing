@@ -83,46 +83,112 @@ class SensorRecorder:
         
         return self.recording_folder
     
+    def _read_sensor_data(self):
+        """Read sensor data from Dev2 hardware - returns raw voltage values"""
+        import nidaqmx
+        try:
+            with nidaqmx.Task() as task:
+                # Add channels individually with explicit voltage range - using Dev2
+                task.ai_channels.add_ai_voltage_chan("Dev2/ai16", min_val=-10.0, max_val=10.0)
+                task.ai_channels.add_ai_voltage_chan("Dev2/ai18", min_val=-10.0, max_val=10.0)
+                task.ai_channels.add_ai_voltage_chan("Dev2/ai20", min_val=-10.0, max_val=10.0)
+                task.ai_channels.add_ai_voltage_chan("Dev2/ai21", min_val=-10.0, max_val=10.0)
+                task.ai_channels.add_ai_voltage_chan("Dev2/ai22", min_val=-10.0, max_val=10.0)
+                
+                # Read one sample per channel
+                data = task.read(number_of_samples_per_channel=1)
+                
+                # Extract single values from nested list structure (raw voltages)
+                left_foot_voltage = data[0][0] if isinstance(data[0], list) else data[0]
+                right_foot_voltage = data[1][0] if isinstance(data[1], list) else data[1]
+                handle_force_voltage = data[2][0] if isinstance(data[2], list) else data[2]
+                handle_position_voltage = data[3][0] if isinstance(data[3], list) else data[3]
+                seat_position_voltage = data[4][0] if isinstance(data[4], list) else data[4]
+                
+                return {
+                    'left_foot': left_foot_voltage,
+                    'right_foot': right_foot_voltage,
+                    'handle_force': handle_force_voltage,
+                    'handle_position': handle_position_voltage,
+                    'seat_position': seat_position_voltage
+                }
+        except Exception as e:
+            raise Exception(f"Error reading from Dev2: {e}")
+    
+    def test_sensors(self, num_samples=5):
+        """Test sensor reading - reads multiple samples and displays them"""
+        print("\n" + "=" * 70)
+        print("🔍 TESTING SENSOR DATA READING FROM Dev2")
+        print("=" * 70)
+        
+        results = []
+        errors = []
+        
+        for i in range(num_samples):
+            try:
+                data = self._read_sensor_data()
+                results.append(data)
+                print(f"\nSample {i+1}/{num_samples}:")
+                print(f"  Left Foot Force (ai16):    {data['left_foot']:8.4f} V")
+                print(f"  Right Foot Force (ai18):   {data['right_foot']:8.4f} V")
+                print(f"  Handle Force (ai20):       {data['handle_force']:8.4f} V")
+                print(f"  Handle Position (ai21):    {data['handle_position']:8.4f} V")
+                print(f"  Seat Position (ai22):      {data['seat_position']:8.4f} V")
+                time.sleep(0.1)  # Small delay between samples
+            except Exception as e:
+                errors.append(str(e))
+                print(f"\n❌ Sample {i+1}/{num_samples} failed: {e}")
+        
+        if results:
+            print("\n" + "-" * 70)
+            print("📊 SUMMARY STATISTICS:")
+            print("-" * 70)
+            
+            # Calculate statistics
+            for channel_name, key in zip(self.channel_names, 
+                                        ['left_foot', 'right_foot', 'handle_force', 'handle_position', 'seat_position']):
+                values = [r[key] for r in results]
+                print(f"\n{channel_name}:")
+                print(f"  Mean:   {np.mean(values):8.4f} V")
+                print(f"  Std:    {np.std(values):8.4f} V")
+                print(f"  Min:    {np.min(values):8.4f} V")
+                print(f"  Max:    {np.max(values):8.4f} V")
+                print(f"  Range:  {np.max(values) - np.min(values):8.4f} V")
+            
+            print("\n✅ Sensor reading test PASSED - Dev2 is responding correctly!")
+            print("=" * 70 + "\n")
+            return True
+        else:
+            print("\n❌ Sensor reading test FAILED - Could not read any data from Dev2")
+            if errors:
+                print("Errors encountered:")
+                for error in errors:
+                    print(f"  - {error}")
+            print("=" * 70 + "\n")
+            return False
+    
     def _recording_loop(self):
         """Main recording loop - runs in separate thread"""
         # Target: 2000 Hz (0.0005 seconds between samples)
         target_interval = 1.0 / 2000.0
-        
-        import nidaqmx
         
         while self.is_recording:
             loop_start = time.time()
             
             # Read sensor data directly from hardware (raw voltage values)
             try:
-                with nidaqmx.Task() as task:
-                    # Add channels individually with explicit voltage range
-                    task.ai_channels.add_ai_voltage_chan("Dev2/ai16", min_val=-10.0, max_val=10.0)
-                    task.ai_channels.add_ai_voltage_chan("Dev2/ai18", min_val=-10.0, max_val=10.0)
-                    task.ai_channels.add_ai_voltage_chan("Dev2/ai20", min_val=-10.0, max_val=10.0)
-                    task.ai_channels.add_ai_voltage_chan("Dev2/ai21", min_val=-10.0, max_val=10.0)
-                    task.ai_channels.add_ai_voltage_chan("Dev2/ai22", min_val=-10.0, max_val=10.0)
-                    
-                    # Read one sample per channel
-                    data = task.read(number_of_samples_per_channel=1)
-                    
-                    # Extract single values from nested list structure (raw voltages)
-                    left_foot_voltage = data[0][0] if isinstance(data[0], list) else data[0]
-                    right_foot_voltage = data[1][0] if isinstance(data[1], list) else data[1]
-                    handle_force_voltage = data[2][0] if isinstance(data[2], list) else data[2]
-                    handle_position_voltage = data[3][0] if isinstance(data[3], list) else data[3]
-                    seat_position_voltage = data[4][0] if isinstance(data[4], list) else data[4]
-                    
-                    # Record raw voltage values
-                    timestamp = time.time() - self.start_time  # Relative time in seconds
-                    self.timestamps.append(timestamp)
-                    self.data_buffer.append([
-                        left_foot_voltage,
-                        right_foot_voltage,
-                        handle_force_voltage,
-                        handle_position_voltage,
-                        seat_position_voltage
-                    ])
+                data = self._read_sensor_data()
+                
+                # Record raw voltage values
+                timestamp = time.time() - self.start_time  # Relative time in seconds
+                self.timestamps.append(timestamp)
+                self.data_buffer.append([
+                    data['left_foot'],
+                    data['right_foot'],
+                    data['handle_force'],
+                    data['handle_position'],
+                    data['seat_position']
+                ])
             except Exception as e:
                 print(f"Warning: Error reading sensor data: {e}")
             
@@ -232,7 +298,7 @@ class SensorRecorder:
 class RecordingControlPanel(wx.Frame):
     """GUI control panel for sensor recording"""
     def __init__(self):
-        super(RecordingControlPanel, self).__init__(None, title="Sensor Data Recorder", size=(500, 300))
+        super(RecordingControlPanel, self).__init__(None, title="Sensor Data Recorder", size=(550, 350))
         self.Centre()
         
         print("=" * 60)
@@ -276,6 +342,10 @@ class RecordingControlPanel(wx.Frame):
         # Initialize recorder
         self.recorder = SensorRecorder(self.sensor_reader)
         
+        # Test sensors on startup
+        print("\n🔍 Testing sensor connection to Dev2...")
+        test_success = self.recorder.test_sensors(num_samples=3)
+        
         # Create UI
         panel = wx.Panel(self)
         sizer = wx.BoxSizer(wx.VERTICAL)
@@ -309,6 +379,13 @@ class RecordingControlPanel(wx.Frame):
         
         # Buttons
         button_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        
+        self.test_button = wx.Button(panel, label="Test Sensors", size=(130, 50))
+        self.test_button.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        self.test_button.SetBackgroundColour(wx.Colour(33, 150, 243))
+        self.test_button.SetForegroundColour(wx.Colour(255, 255, 255))
+        self.test_button.Bind(wx.EVT_BUTTON, self.on_test)
+        button_sizer.Add(self.test_button, 0, wx.ALL, 10)
         
         self.start_button = wx.Button(panel, label="Start Recording", size=(150, 50))
         self.start_button.SetFont(wx.Font(14, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
@@ -351,6 +428,46 @@ class RecordingControlPanel(wx.Frame):
         print("   Press Start to begin recording")
         print("   Press Stop to save data and generate plots\n")
     
+    def on_test(self, event):
+        """Test sensor reading"""
+        self.test_button.Disable()
+        self.status_label.SetLabel("Status: Testing Sensors...")
+        self.status_label.SetForegroundColour(wx.Colour(33, 150, 243))
+        self.info_label.SetLabel("Reading sensor data from Dev2...")
+        wx.Yield()
+        
+        # Run test
+        test_success = self.recorder.test_sensors(num_samples=5)
+        
+        if test_success:
+            self.status_label.SetLabel("Status: Sensors OK")
+            self.status_label.SetForegroundColour(wx.Colour(0, 128, 0))
+            self.info_label.SetLabel("Dev2 is responding correctly - ready to record")
+            wx.MessageBox(
+                "Sensor test PASSED!\n\n"
+                "All 5 channels on Dev2 are responding correctly.\n"
+                "Check console for detailed sensor readings.",
+                "Test Successful",
+                wx.OK | wx.ICON_INFORMATION
+            )
+        else:
+            self.status_label.SetLabel("Status: Test Failed")
+            self.status_label.SetForegroundColour(wx.Colour(244, 67, 54))
+            self.info_label.SetLabel("Could not read from Dev2 - check hardware connection")
+            wx.MessageBox(
+                "Sensor test FAILED!\n\n"
+                "Could not read data from Dev2.\n"
+                "Check console for error details.\n\n"
+                "Troubleshooting:\n"
+                "• Verify Dev2 is connected\n"
+                "• Check NI-DAQmx drivers\n"
+                "• Ensure device name is 'Dev2' in NI MAX",
+                "Test Failed",
+                wx.OK | wx.ICON_ERROR
+            )
+        
+        self.test_button.Enable()
+    
     def on_start(self, event):
         """Start recording"""
         if self.recorder.start_recording():
@@ -359,6 +476,7 @@ class RecordingControlPanel(wx.Frame):
             self.info_label.SetLabel(f"Recording to: {os.path.basename(self.recorder.recording_folder)}")
             self.start_button.Disable()
             self.stop_button.Enable()
+            self.test_button.Disable()
             self.recording_start_time = time.time()
             self.timer.Start(100)  # Update every 100ms
             print("🔴 Recording started")
@@ -382,6 +500,7 @@ class RecordingControlPanel(wx.Frame):
             self.status_label.SetForegroundColour(wx.Colour(0, 128, 0))
             self.info_label.SetLabel(f"Saved to: {recording_folder}")
             self.start_button.Enable()
+            self.test_button.Enable()
             
             wx.MessageBox(
                 f"Recording complete!\n\n"
@@ -394,6 +513,7 @@ class RecordingControlPanel(wx.Frame):
         else:
             self.status_label.SetLabel("Status: Error")
             self.status_label.SetForegroundColour(wx.Colour(244, 67, 54))
+            self.test_button.Enable()
             wx.MessageBox("Error saving recording", "Error", wx.OK | wx.ICON_ERROR)
     
     def on_timer(self, event):
