@@ -49,12 +49,12 @@ class SensorReader:
             
         try:
             with nidaqmx.Task() as task:
-                # Test with all 5 channels
-                task.ai_channels.add_ai_voltage_chan(f"{self.device_name}/ai16", min_val=-10.0, max_val=10.0)
-                task.ai_channels.add_ai_voltage_chan(f"{self.device_name}/ai18", min_val=-10.0, max_val=10.0)
-                task.ai_channels.add_ai_voltage_chan(f"{self.device_name}/ai20", min_val=-10.0, max_val=10.0)
-                task.ai_channels.add_ai_voltage_chan(f"{self.device_name}/ai21", min_val=-10.0, max_val=10.0)
-                task.ai_channels.add_ai_voltage_chan(f"{self.device_name}/ai22", min_val=-10.0, max_val=10.0)
+                # Test with all 5 channels - using optimized voltage ranges for better ADC resolution
+                task.ai_channels.add_ai_voltage_chan(f"{self.device_name}/ai16", min_val=7.0, max_val=9.5)   # Left Foot Force
+                task.ai_channels.add_ai_voltage_chan(f"{self.device_name}/ai18", min_val=7.0, max_val=9.0)   # Right Foot Force
+                task.ai_channels.add_ai_voltage_chan(f"{self.device_name}/ai20", min_val=8.5, max_val=10.5)  # Handle Force
+                task.ai_channels.add_ai_voltage_chan(f"{self.device_name}/ai21", min_val=8.5, max_val=11.0)  # Handle Position
+                task.ai_channels.add_ai_voltage_chan(f"{self.device_name}/ai22", min_val=9.0, max_val=11.0)  # Seat Position
                 # Try reading one sample to verify connection
                 task.read(number_of_samples_per_channel=1)
                 
@@ -116,12 +116,13 @@ class SensorReader:
         
         try:
             with nidaqmx.Task() as task:
-                # Add channels individually with explicit voltage range
-                task.ai_channels.add_ai_voltage_chan(f"{self.device_name}/ai16", min_val=-10.0, max_val=10.0)
-                task.ai_channels.add_ai_voltage_chan(f"{self.device_name}/ai18", min_val=-10.0, max_val=10.0)
-                task.ai_channels.add_ai_voltage_chan(f"{self.device_name}/ai20", min_val=-10.0, max_val=10.0)
-                task.ai_channels.add_ai_voltage_chan(f"{self.device_name}/ai21", min_val=-10.0, max_val=10.0)
-                task.ai_channels.add_ai_voltage_chan(f"{self.device_name}/ai22", min_val=-10.0, max_val=10.0)
+                # Add channels individually with optimized voltage ranges for better ADC resolution
+                # Ranges based on actual sensor output measurements (with safety margin)
+                task.ai_channels.add_ai_voltage_chan(f"{self.device_name}/ai16", min_val=7.0, max_val=9.5)   # Left Foot Force
+                task.ai_channels.add_ai_voltage_chan(f"{self.device_name}/ai18", min_val=7.0, max_val=9.0)   # Right Foot Force
+                task.ai_channels.add_ai_voltage_chan(f"{self.device_name}/ai20", min_val=8.5, max_val=10.5)  # Handle Force
+                task.ai_channels.add_ai_voltage_chan(f"{self.device_name}/ai21", min_val=8.5, max_val=11.0)  # Handle Position
+                task.ai_channels.add_ai_voltage_chan(f"{self.device_name}/ai22", min_val=9.0, max_val=11.0)  # Seat Position
                 
                 # Read one sample per channel
                 data = task.read(number_of_samples_per_channel=1)

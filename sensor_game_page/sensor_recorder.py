@@ -88,12 +88,13 @@ class SensorRecorder:
         import nidaqmx
         try:
             with nidaqmx.Task() as task:
-                # Add channels individually with explicit voltage range - using Dev2
-                task.ai_channels.add_ai_voltage_chan("Dev2/ai16", min_val=-10.0, max_val=10.0)
-                task.ai_channels.add_ai_voltage_chan("Dev2/ai18", min_val=-10.0, max_val=10.0)
-                task.ai_channels.add_ai_voltage_chan("Dev2/ai20", min_val=-10.0, max_val=10.0)
-                task.ai_channels.add_ai_voltage_chan("Dev2/ai21", min_val=-10.0, max_val=10.0)
-                task.ai_channels.add_ai_voltage_chan("Dev2/ai22", min_val=-10.0, max_val=10.0)
+                # Add channels individually with optimized voltage ranges for better ADC resolution
+                # Ranges based on actual sensor output measurements (with safety margin)
+                task.ai_channels.add_ai_voltage_chan("Dev2/ai16", min_val=7.0, max_val=9.5)   # Left Foot Force
+                task.ai_channels.add_ai_voltage_chan("Dev2/ai18", min_val=7.0, max_val=9.0)   # Right Foot Force
+                task.ai_channels.add_ai_voltage_chan("Dev2/ai20", min_val=8.5, max_val=10.5)  # Handle Force
+                task.ai_channels.add_ai_voltage_chan("Dev2/ai21", min_val=8.5, max_val=11.0)  # Handle Position
+                task.ai_channels.add_ai_voltage_chan("Dev2/ai22", min_val=9.0, max_val=11.0)  # Seat Position
                 
                 # Read one sample per channel
                 data = task.read(number_of_samples_per_channel=1)
