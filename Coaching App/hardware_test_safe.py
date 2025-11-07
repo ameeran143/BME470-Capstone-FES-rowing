@@ -20,11 +20,6 @@ import nidaqmx
 import time
 import sys
 import statistics
-import csv
-import os
-import numpy as np
-import matplotlib.pyplot as plt
-from datetime import datetime
 
 # Sensor channel mapping
 SENSORS = {
@@ -56,19 +51,6 @@ def test_sensor_readings():
     print("\n🔍 Testing sensor readings...")
     print("Press Ctrl+C to stop\n")
     
-    # Create output folder with timestamp
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_folder = os.path.join(os.path.dirname(__file__), "Test_Recordings", f"test_{timestamp}")
-    os.makedirs(output_folder, exist_ok=True)
-    csv_file = os.path.join(output_folder, "sensor_data.csv")
-    
-    print(f"📁 Recording data to: {output_folder}\n")
-    
-    # Data recording lists
-    timestamps = []
-    data_buffer = []
-    start_time = time.time()
-    
     # Store previous readings to detect changes
     previous_readings = [0, 0, 0, 0, 0]
     stable_count = 0
@@ -78,17 +60,6 @@ def test_sensor_readings():
     # Track convergence behavior
     initial_readings = None
     convergence_values = []
-    
-    # Create CSV file and write header
-    csv_writer = None
-    csv_file_handle = None
-    try:
-        csv_file_handle = open(csv_file, 'w', newline='')
-        csv_writer = csv.writer(csv_file_handle)
-        csv_writer.writerow(['Time (s)', 'Left Foot (ai16)', 'Right Foot (ai18)', 'Handle Force (ai20)', 
-                            'Handle Position (ai21)', 'Seat Position (ai22)'])
-    except Exception as e:
-        print(f"⚠️  Warning: Could not create CSV file: {e}")
     
     # Create task once and reuse it (like Cortex does)
     # This prevents task recreation overhead and settling issues
@@ -129,18 +100,6 @@ def test_sensor_readings():
             
             current_readings = [left_foot, right_foot, handle_force, handle_position, seat_position]
             sample_count += 1
-            
-            # Record data to CSV and lists
-            timestamp = time.time() - start_time
-            timestamps.append(timestamp)
-            data_buffer.append(current_readings.copy())
-            
-            if csv_writer:
-                try:
-                    csv_writer.writerow([timestamp, left_foot, right_foot, handle_force, handle_position, seat_position])
-                    csv_file_handle.flush()  # Ensure data is written immediately
-                except Exception as e:
-                    print(f"⚠️  Warning: Error writing to CSV: {e}")
             
             # Capture initial readings (first sample)
             if initial_readings is None:
@@ -238,79 +197,11 @@ def test_sensor_readings():
         import traceback
         traceback.print_exc()
     finally:
-        # Close CSV file
-        if csv_file_handle:
-            try:
-                csv_file_handle.close()
-            except:
-                pass
-        
-        # Generate plots if we have data
-        if timestamps and data_buffer:
-            try:
-                print(f"\n📊 Generating plots...")
-                _generate_plots(timestamps, data_buffer, output_folder)
-                print(f"✅ Plot saved to: {os.path.join(output_folder, 'sensor_voltages_over_time.png')}")
-            except Exception as e:
-                print(f"⚠️  Warning: Could not generate plots: {e}")
-                import traceback
-                traceback.print_exc()
-        
         # Clean up task
         try:
             task.close()
         except:
             pass
-        
-        if timestamps:
-            print(f"\n📁 Data saved to: {output_folder}")
-            print(f"   CSV: {csv_file}")
-            print(f"   Total samples: {len(timestamps)}")
-
-def _generate_plots(timestamps, data_buffer, output_folder):
-    """Generate plots of all sensor voltages over time"""
-    timestamps_arr = np.array(timestamps)
-    data_arr = np.array(data_buffer)
-    
-    # Channel names
-    channel_names = [
-        'Left Foot Force (ai16)',
-        'Right Foot Force (ai18)',
-        'Handle Force (ai20)',
-        'Handle Position (ai21)',
-        'Seat Position (ai22)'
-    ]
-    
-    # Create overview plot
-    n_channels = len(channel_names)
-    fig, axes = plt.subplots(n_channels, 1, figsize=(15, 2.5*n_channels))
-    fig.suptitle('Sensor Voltages Over Time', fontsize=14, fontweight='bold')
-    
-    colors = plt.cm.tab10(np.linspace(0, 1, n_channels))
-    
-    for i, (ax, channel, color) in enumerate(zip(axes, channel_names, colors)):
-        ax.plot(timestamps_arr, data_arr[:, i], linewidth=0.8, color=color, alpha=0.8)
-        ax.set_ylabel(f'{channel}\n(Voltage)', fontsize=10)
-        ax.grid(True, alpha=0.3)
-        
-        if len(timestamps_arr) > 0:
-            ax.set_xlim(timestamps_arr[0], timestamps_arr[-1])
-        
-        # Add stats
-        mean_val = np.mean(data_arr[:, i])
-        std_val = np.std(data_arr[:, i])
-        min_val = np.min(data_arr[:, i])
-        max_val = np.max(data_arr[:, i])
-        ax.text(0.02, 0.95, f'μ={mean_val:.3f}V, σ={std_val:.3f}V\nmin={min_val:.3f}V, max={max_val:.3f}V',
-                transform=ax.transAxes, fontsize=8, verticalalignment='top',
-                bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
-    
-    axes[-1].set_xlabel('Time (seconds)', fontsize=11)
-    plt.tight_layout()
-    
-    plot_filename = os.path.join(output_folder, "sensor_voltages_over_time.png")
-    plt.savefig(plot_filename, dpi=150, bbox_inches='tight')
-    plt.close()
 
 def continuous_single_sensor(sensor_key):
     """Continuously read and display voltage from a single selected sensor"""
