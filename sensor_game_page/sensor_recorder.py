@@ -34,6 +34,9 @@ class SensorRecorder:
         self.start_time = None
         self.recording_folder = None
         
+        # Persistent DAQ task (created once and reused, like Cortex)
+        self.daq_task = None
+        
         # Channel names for 5 sensors
         self.channel_names = [
             'Left Foot Force (ai16)',
@@ -81,38 +84,68 @@ class SensorRecorder:
         # Generate plots
         self._generate_plots()
         
+        # Clean up DAQ task after recording
+        self._cleanup_daq_task()
+        
         return self.recording_folder
+    
+    def _init_daq_task(self):
+        """Initialize persistent DAQ task (created once and reused, like Cortex)"""
+        import nidaqmx
+        if self.daq_task is None:
+            self.daq_task = nidaqmx.Task()
+            # Configure channels with explicit terminal configuration (RSE - Referenced Single-Ended)
+            # This matches typical Cortex configuration for single-ended sensors
+            # RSE uses AI GND as reference, which is standard for potentiometers and load cells
+            self.daq_task.ai_channels.add_ai_voltage_chan("Dev2/ai16", 
+                                                          terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
+                                                          min_val=0.0, max_val=10.0)   # Left Foot Force
+            self.daq_task.ai_channels.add_ai_voltage_chan("Dev2/ai18",
+                                                          terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
+                                                          min_val=0.0, max_val=10.0)   # Right Foot Force
+            self.daq_task.ai_channels.add_ai_voltage_chan("Dev2/ai20",
+                                                          terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
+                                                          min_val=0.0, max_val=10.0)   # Handle Force
+            self.daq_task.ai_channels.add_ai_voltage_chan("Dev2/ai21",
+                                                          terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
+                                                          min_val=0.0, max_val=10.0)   # Handle Position
+            self.daq_task.ai_channels.add_ai_voltage_chan("Dev2/ai22",
+                                                          terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
+                                                          min_val=0.0, max_val=10.0)   # Seat Position (0-10V as in Cortex)
+    
+    def _cleanup_daq_task(self):
+        """Clean up DAQ task"""
+        if self.daq_task is not None:
+            try:
+                self.daq_task.close()
+            except:
+                pass
+            self.daq_task = None
     
     def _read_sensor_data(self):
         """Read sensor data from Dev2 hardware - returns raw voltage values"""
         import nidaqmx
         try:
-            with nidaqmx.Task() as task:
-                # Add channels individually with optimized voltage ranges for better ADC resolution
-                # Ranges based on actual sensor output measurements (with safety margin)
-                task.ai_channels.add_ai_voltage_chan("Dev2/ai16", min_val=7.0, max_val=9.5)   # Left Foot Force
-                task.ai_channels.add_ai_voltage_chan("Dev2/ai18", min_val=7.0, max_val=9.0)   # Right Foot Force
-                task.ai_channels.add_ai_voltage_chan("Dev2/ai20", min_val=8.5, max_val=10.5)  # Handle Force
-                task.ai_channels.add_ai_voltage_chan("Dev2/ai21", min_val=8.5, max_val=11.0)  # Handle Position
-                task.ai_channels.add_ai_voltage_chan("Dev2/ai22", min_val=-10.0, max_val=10.0)  # Seat Position
-                
-                # Read one sample per channel
-                data = task.read(number_of_samples_per_channel=1)
-                
-                # Extract single values from nested list structure (raw voltages)
-                left_foot_voltage = data[0][0] if isinstance(data[0], list) else data[0]
-                right_foot_voltage = data[1][0] if isinstance(data[1], list) else data[1]
-                handle_force_voltage = data[2][0] if isinstance(data[2], list) else data[2]
-                handle_position_voltage = data[3][0] if isinstance(data[3], list) else data[3]
-                seat_position_voltage = data[4][0] if isinstance(data[4], list) else data[4]
-                
-                return {
-                    'left_foot': left_foot_voltage,
-                    'right_foot': right_foot_voltage,
-                    'handle_force': handle_force_voltage,
-                    'handle_position': handle_position_voltage,
-                    'seat_position': seat_position_voltage
-                }
+            # Initialize task if not already created
+            self._init_daq_task()
+            
+            # Read data using the persistent task (exactly like hardware_test.py)
+            data = self.daq_task.read(number_of_samples_per_channel=1)
+            
+            # Extract single values from the nested list structure (exactly like hardware_test.py)
+            left_foot_voltage = data[0][0] if isinstance(data[0], list) else data[0]
+            right_foot_voltage = data[1][0] if isinstance(data[1], list) else data[1]
+            handle_force_voltage = data[2][0] if isinstance(data[2], list) else data[2]
+            handle_position_voltage = data[3][0] if isinstance(data[3], list) else data[3]
+            seat_position_voltage = data[4][0] if isinstance(data[4], list) else data[4]
+            
+            return {
+                'left_foot': left_foot_voltage,
+                'right_foot': right_foot_voltage,
+                'handle_force': handle_force_voltage,
+                'handle_position': handle_position_voltage,
+                'seat_position': seat_position_voltage
+            }
         except Exception as e:
             raise Exception(f"Error reading from Dev2: {e}")
     
@@ -125,20 +158,24 @@ class SensorRecorder:
         results = []
         errors = []
         
-        for i in range(num_samples):
-            try:
-                data = self._read_sensor_data()
-                results.append(data)
-                print(f"\nSample {i+1}/{num_samples}:")
-                print(f"  Left Foot Force (ai16):    {data['left_foot']:8.4f} V")
-                print(f"  Right Foot Force (ai18):   {data['right_foot']:8.4f} V")
-                print(f"  Handle Force (ai20):       {data['handle_force']:8.4f} V")
-                print(f"  Handle Position (ai21):    {data['handle_position']:8.4f} V")
-                print(f"  Seat Position (ai22):      {data['seat_position']:8.4f} V")
-                time.sleep(0.1)  # Small delay between samples
-            except Exception as e:
-                errors.append(str(e))
-                print(f"\n❌ Sample {i+1}/{num_samples} failed: {e}")
+        try:
+            for i in range(num_samples):
+                try:
+                    data = self._read_sensor_data()
+                    results.append(data)
+                    print(f"\nSample {i+1}/{num_samples}:")
+                    print(f"  Left Foot Force (ai16):    {data['left_foot']:8.4f} V")
+                    print(f"  Right Foot Force (ai18):   {data['right_foot']:8.4f} V")
+                    print(f"  Handle Force (ai20):       {data['handle_force']:8.4f} V")
+                    print(f"  Handle Position (ai21):    {data['handle_position']:8.4f} V")
+                    print(f"  Seat Position (ai22):      {data['seat_position']:8.4f} V")
+                    time.sleep(0.1)  # Small delay between samples
+                except Exception as e:
+                    errors.append(str(e))
+                    print(f"\n❌ Sample {i+1}/{num_samples} failed: {e}")
+        finally:
+            # Clean up DAQ task after testing
+            self._cleanup_daq_task()
         
         if results:
             print("\n" + "-" * 70)
@@ -537,6 +574,9 @@ class RecordingControlPanel(wx.Frame):
                 self.on_stop(None)
             else:
                 return  # Don't close
+        
+        # Clean up DAQ task before closing
+        self.recorder._cleanup_daq_task()
         
         print("\n👋 Closing recorder...")
         self.Destroy()
