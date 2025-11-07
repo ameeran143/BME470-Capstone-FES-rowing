@@ -79,6 +79,10 @@ def test_sensor_readings():
     initial_readings = None
     convergence_values = []
     
+    # Display timing (1 Hz = every 1 second)
+    last_display_time = None
+    display_interval = 1.0  # Display every 1 second
+    
     # Create CSV file and write header
     csv_writer = None
     csv_file_handle = None
@@ -114,9 +118,15 @@ def test_sensor_readings():
                                              min_val=0.0, max_val=10.0)   # Seat Position (0-10V as in Cortex)
         
         print("✅ Task configured with RSE (Referenced Single-Ended) terminal configuration")
-        print("   Voltage range: 0.0V to 10.0V (matching Cortex configuration)\n")
+        print("   Voltage range: 0.0V to 10.0V (matching Cortex configuration)")
+        print("   Recording at 2000 Hz, displaying at 1 Hz\n")
+        
+        # Target: 2000 Hz (0.0005 seconds between samples)
+        target_interval = 1.0 / 2000.0
         
         while True:
+            loop_start = time.time()
+            
             # Read data using the persistent task
             data = task.read(number_of_samples_per_channel=1)
             
@@ -130,7 +140,7 @@ def test_sensor_readings():
             current_readings = [left_foot, right_foot, handle_force, handle_position, seat_position]
             sample_count += 1
             
-            # Record data to CSV and lists
+            # Record data to CSV and lists at 2000 Hz
             timestamp = time.time() - start_time
             timestamps.append(timestamp)
             data_buffer.append(current_readings.copy())
@@ -138,98 +148,116 @@ def test_sensor_readings():
             if csv_writer:
                 try:
                     csv_writer.writerow([timestamp, left_foot, right_foot, handle_force, handle_position, seat_position])
-                    csv_file_handle.flush()  # Ensure data is written immediately
+                    # Flush periodically (every 100 samples) to reduce I/O overhead
+                    if sample_count % 100 == 0:
+                        csv_file_handle.flush()
                 except Exception as e:
                     print(f"⚠️  Warning: Error writing to CSV: {e}")
             
-            # Capture initial readings (first sample)
-            if initial_readings is None:
-                initial_readings = current_readings.copy()
-                print("📊 Initial readings captured:")
-                print(f"  Left Foot (ai16):    {left_foot:.6f}V")
-                print(f"  Right Foot (ai18):   {right_foot:.6f}V") 
-                print(f"  Handle Force (ai20):  {handle_force:.6f}V")
-                print(f"  Front Pot (ai21):    {handle_position:.6f}V")
-                print(f"  Back Pot (ai22):     {seat_position:.6f}V")
-                print()
+            # Display at 1 Hz (every 1 second)
+            current_time = time.time()
+            should_display = False
+            if last_display_time is None:
+                should_display = True
+                last_display_time = current_time
+            elif (current_time - last_display_time) >= display_interval:
+                should_display = True
+                last_display_time = current_time
             
-            print(f"[Sample {sample_count}] Sensor Readings at {time.strftime('%H:%M:%S')}:")
-            print(f"  Left Foot (ai16):    {left_foot:.6f}V  (Δ: {left_foot - initial_readings[0]:+.6f}V)")
-            print(f"  Right Foot (ai18):   {right_foot:.6f}V  (Δ: {right_foot - initial_readings[1]:+.6f}V)") 
-            print(f"  Handle Force (ai20):  {handle_force:.6f}V  (Δ: {handle_force - initial_readings[2]:+.6f}V)")
-            print(f"  Front Pot (ai21):    {handle_position:.6f}V  (Δ: {handle_position - initial_readings[3]:+.6f}V)")
-            print(f"  Back Pot (ai22):     {seat_position:.6f}V  (Δ: {seat_position - initial_readings[4]:+.6f}V)")
-            
-            # Check for convergence (all values moving toward same value)
-            if sample_count > 3:
-                # Calculate standard deviation of current readings
-                std_dev = statistics.stdev(current_readings)
-                mean_val = statistics.mean(current_readings)
+            if should_display:
+                # Capture initial readings (first display)
+                if initial_readings is None:
+                    initial_readings = current_readings.copy()
+                    print("📊 Initial readings captured:")
+                    print(f"  Left Foot (ai16):    {left_foot:.6f}V")
+                    print(f"  Right Foot (ai18):   {right_foot:.6f}V") 
+                    print(f"  Handle Force (ai20):  {handle_force:.6f}V")
+                    print(f"  Front Pot (ai21):    {handle_position:.6f}V")
+                    print(f"  Back Pot (ai22):     {seat_position:.6f}V")
+                    print()
                 
-                # Check if values are converging (std dev decreasing)
-                if len(convergence_values) > 0:
-                    prev_std = convergence_values[-1]
-                    if std_dev < prev_std and std_dev < 0.1:  # Converging and very close
-                        if not convergence_warning_shown:
-                            print("\n⚠️  WARNING: Sensors converging to same value!")
-                            print(f"   Mean: {mean_val:.6f}V, Std Dev: {std_dev:.6f}V")
-                            print("\n   Possible causes:")
-                            print("   1. FLOATING INPUTS (most likely)")
-                            print("      • Sensors not connected or disconnected")
-                            print("      • Signal wires not connected to sensors")
-                            print("      • Check: Are sensors physically connected?")
-                            print()
-                            print("   2. SHARED GROUND ISSUE")
-                            print("      • All sensors sharing a floating/common ground")
-                            print("      • Ground wire disconnected or not connected to DAQ")
-                            print("      • Check: Is ground properly connected?")
-                            print()
-                            print("   3. POWER SUPPLY ISSUE")
-                            print("      • Sensors not powered or power disconnected")
-                            print("      • Power supply settling to common voltage")
-                            print("      • Check: Are sensors receiving power?")
-                            print()
-                            print("   4. WIRING SHORT")
-                            print("      • Signal wires shorted together")
-                            print("      • All channels reading same physical connection")
-                            print("      • Check: Are signal wires properly isolated?")
-                            print()
-                            print("   Diagnostic steps:")
-                            print("   • Test each sensor individually (mode 2)")
-                            print("   • Check physical connections")
-                            print("   • Verify sensor power supply")
-                            print("   • Test with multimeter if available")
-                            convergence_warning_shown = True
+                print(f"[Sample {sample_count}] Sensor Readings at {time.strftime('%H:%M:%S')}:")
+                print(f"  Left Foot (ai16):    {left_foot:.6f}V  (Δ: {left_foot - initial_readings[0]:+.6f}V)")
+                print(f"  Right Foot (ai18):   {right_foot:.6f}V  (Δ: {right_foot - initial_readings[1]:+.6f}V)") 
+                print(f"  Handle Force (ai20):  {handle_force:.6f}V  (Δ: {handle_force - initial_readings[2]:+.6f}V)")
+                print(f"  Front Pot (ai21):    {handle_position:.6f}V  (Δ: {handle_position - initial_readings[3]:+.6f}V)")
+                print(f"  Back Pot (ai22):     {seat_position:.6f}V  (Δ: {seat_position - initial_readings[4]:+.6f}V)")
                 
-                convergence_values.append(std_dev)
-                if len(convergence_values) > 10:
-                    convergence_values.pop(0)
+                # Check for convergence (all values moving toward same value)
+                if sample_count > 2000:  # Need enough samples for convergence check
+                    # Calculate standard deviation of recent readings (last 2000 samples)
+                    recent_data = np.array(data_buffer[-2000:]) if len(data_buffer) >= 2000 else np.array(data_buffer)
+                    std_dev = np.std(recent_data, axis=0).mean()
+                    mean_val = np.mean(recent_data)
+                    
+                    # Check if values are converging (std dev decreasing)
+                    if len(convergence_values) > 0:
+                        prev_std = convergence_values[-1]
+                        if std_dev < prev_std and std_dev < 0.1:  # Converging and very close
+                            if not convergence_warning_shown:
+                                print("\n⚠️  WARNING: Sensors converging to same value!")
+                                print(f"   Mean: {mean_val:.6f}V, Std Dev: {std_dev:.6f}V")
+                                print("\n   Possible causes:")
+                                print("   1. FLOATING INPUTS (most likely)")
+                                print("      • Sensors not connected or disconnected")
+                                print("      • Signal wires not connected to sensors")
+                                print("      • Check: Are sensors physically connected?")
+                                print()
+                                print("   2. SHARED GROUND ISSUE")
+                                print("      • All sensors sharing a floating/common ground")
+                                print("      • Ground wire disconnected or not connected to DAQ")
+                                print("      • Check: Is ground properly connected?")
+                                print()
+                                print("   3. POWER SUPPLY ISSUE")
+                                print("      • Sensors not powered or power disconnected")
+                                print("      • Power supply settling to common voltage")
+                                print("      • Check: Are sensors receiving power?")
+                                print()
+                                print("   4. WIRING SHORT")
+                                print("      • Signal wires shorted together")
+                                print("      • All channels reading same physical connection")
+                                print("      • Check: Are signal wires properly isolated?")
+                                print()
+                                print("   Diagnostic steps:")
+                                print("   • Test each sensor individually (mode 2)")
+                                print("   • Check physical connections")
+                                print("   • Verify sensor power supply")
+                                print("   • Test with multimeter if available")
+                                convergence_warning_shown = True
+                    
+                    convergence_values.append(std_dev)
+                    if len(convergence_values) > 10:
+                        convergence_values.pop(0)
+                
+                # Check if all readings are identical and near 5V
+                all_same = all(abs(val - current_readings[0]) < 0.001 for val in current_readings)
+                near_5v = all(abs(val - 5.437) < 0.1 for val in current_readings)
+                
+                if all_same and near_5v:
+                    stable_count += 1
+                    if stable_count > 5:
+                        print("\n⚠️  WARNING: All sensors stuck at ~5.437V!")
+                        print("   This suggests a hardware/wiring issue:")
+                        print("   • Check sensor power connections")
+                        print("   • Verify signal wires are not shorted to power")
+                        print("   • Ensure sensors are properly grounded")
+                        print("   • Try physically moving/pressing sensors")
+                else:
+                    stable_count = 0
+                
+                # Check for changes from previous reading
+                changes = [abs(curr - prev) > 0.01 for curr, prev in zip(current_readings, previous_readings)]
+                if any(changes):
+                    print("📈 Changes detected!")
+                
+                previous_readings = current_readings
+                print("-" * 50)
             
-            # Check if all readings are identical and near 5V
-            all_same = all(abs(val - current_readings[0]) < 0.001 for val in current_readings)
-            near_5v = all(abs(val - 5.437) < 0.1 for val in current_readings)
-            
-            if all_same and near_5v:
-                stable_count += 1
-                if stable_count > 5:
-                    print("\n⚠️  WARNING: All sensors stuck at ~5.437V!")
-                    print("   This suggests a hardware/wiring issue:")
-                    print("   • Check sensor power connections")
-                    print("   • Verify signal wires are not shorted to power")
-                    print("   • Ensure sensors are properly grounded")
-                    print("   • Try physically moving/pressing sensors")
-            else:
-                stable_count = 0
-            
-            # Check for changes from previous reading
-            changes = [abs(curr - prev) > 0.01 for curr, prev in zip(current_readings, previous_readings)]
-            if any(changes):
-                print("📈 Changes detected!")
-            
-            previous_readings = current_readings
-            print("-" * 50)
-            
-            time.sleep(0.5)  # Update every 500ms
+            # Maintain 2000 Hz sampling rate
+            elapsed = time.time() - loop_start
+            sleep_time = max(0, target_interval - elapsed)
+            if sleep_time > 0:
+                time.sleep(sleep_time)
                 
     except KeyboardInterrupt:
         print("\n✅ Sensor testing completed")
@@ -241,6 +269,7 @@ def test_sensor_readings():
         # Close CSV file
         if csv_file_handle:
             try:
+                csv_file_handle.flush()  # Ensure all data is written
                 csv_file_handle.close()
             except:
                 pass
