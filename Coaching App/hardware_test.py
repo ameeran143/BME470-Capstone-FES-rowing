@@ -20,6 +20,15 @@ import nidaqmx
 import time
 import sys
 
+# Sensor channel mapping
+SENSORS = {
+    "1": {"name": "Left Foot Force Sensor", "channel": "Dev2/ai16"},
+    "2": {"name": "Right Foot Force Sensor", "channel": "Dev2/ai18"},
+    "3": {"name": "Handle Force Sensor", "channel": "Dev2/ai20"},
+    "4": {"name": "Front Potentiometer (Handle Position)", "channel": "Dev2/ai21"},
+    "5": {"name": "Back Potentiometer (Seat Position)", "channel": "Dev2/ai22"},
+}
+
 def test_hardware_connection():
     """Test if NI-DAQ device is connected and responsive"""
     try:
@@ -103,11 +112,44 @@ def test_sensor_readings():
     except Exception as e:
         print(f"\n❌ Sensor reading error: {e}")
 
+def continuous_single_sensor(sensor_key):
+    """Continuously read and display voltage from a single selected sensor"""
+    if sensor_key not in SENSORS:
+        print(f"❌ Invalid sensor selection: {sensor_key}")
+        return
+    
+    sensor_info = SENSORS[sensor_key]
+    channel = sensor_info["channel"]
+    name = sensor_info["name"]
+    
+    print(f"\n📊 Continuous reading: {name}")
+    print(f"   Channel: {channel}")
+    print("   Press Ctrl+C to stop\n")
+    
+    try:
+        while True:
+            with nidaqmx.Task() as task:
+                task.ai_channels.add_ai_voltage_chan(channel, min_val=-10.0, max_val=10.0)
+                data = task.read(number_of_samples_per_channel=1)
+                
+                # Extract single value
+                voltage = data[0][0] if isinstance(data[0], list) else data[0]
+                
+                # Simple output: just the voltage value
+                print(f"{voltage:.6f}")
+                
+                time.sleep(0.1)  # Update every 100ms for faster sampling
+                
+    except KeyboardInterrupt:
+        print("\n✅ Continuous reading stopped")
+    except Exception as e:
+        print(f"\n❌ Sensor reading error: {e}")
+
 def main():
     print("🧪 FES-Rowing Hardware Test Utility")
     print("=" * 40)
     
-    # Test 1: Hardware Connection
+    # Test Hardware Connection
     if not test_hardware_connection():
         print("\n💡 Troubleshooting tips:")
         print("  - Check NI-DAQ device is connected via USB/Ethernet")
@@ -116,15 +158,58 @@ def main():
         print("  - Try running as administrator")
         sys.exit(1)
     
-    # Test 2: Sensor Readings
-    try:
-        test_sensor_readings()
-    except Exception as e:
-        print(f"❌ Testing failed: {e}")
-        sys.exit(1)
+    # Mode selection
+    print("\n📋 Select mode:")
+    print("  1. Test all sensors (detailed output)")
+    print("  2. Continuous single sensor (voltage values only)")
+    print()
     
-    print("\n🎉 Hardware test completed successfully!")
-    print("You can now run the main application with confidence.")
+    try:
+        mode = input("Enter mode (1 or 2): ").strip()
+        
+        if mode == "1":
+            # Test all sensors
+            try:
+                test_sensor_readings()
+            except Exception as e:
+                print(f"❌ Testing failed: {e}")
+                sys.exit(1)
+            print("\n🎉 Hardware test completed successfully!")
+            print("You can now run the main application with confidence.")
+            
+        elif mode == "2":
+            # Continuous single sensor mode
+            print("\n📡 Available sensors:")
+            for key, info in SENSORS.items():
+                print(f"  {key}. {info['name']} ({info['channel']})")
+            print()
+            
+            sensor_choice = input("Select sensor (1-5): ").strip()
+            if sensor_choice in SENSORS:
+                try:
+                    continuous_single_sensor(sensor_choice)
+                except Exception as e:
+                    print(f"❌ Continuous reading failed: {e}")
+                    sys.exit(1)
+            else:
+                print(f"❌ Invalid sensor selection: {sensor_choice}")
+                sys.exit(1)
+        else:
+            print(f"❌ Invalid mode selection: {mode}")
+            sys.exit(1)
+            
+    except KeyboardInterrupt:
+        print("\n\n👋 Exiting...")
+        sys.exit(0)
+    except EOFError:
+        # Handle case where input is piped or redirected
+        print("\n⚠️  Interactive mode requires terminal input")
+        print("Running default mode: Test all sensors")
+        try:
+            test_sensor_readings()
+        except Exception as e:
+            print(f"❌ Testing failed: {e}")
+            sys.exit(1)
 
 if __name__ == "__main__":
     main() 
