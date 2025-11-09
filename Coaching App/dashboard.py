@@ -831,7 +831,7 @@ class DashboardPage(wx.Panel):
 
         main_sizer = wx.BoxSizer(wx.VERTICAL)
         
-        # Create header sizer for title and button
+        # Create header sizer for title
         header_sizer = wx.BoxSizer(wx.HORIZONTAL)
         
         # Add stretch spacer to center the title
@@ -844,13 +844,8 @@ class DashboardPage(wx.Panel):
         header.SetForegroundColour(wx.Colour(33, 37, 41))
         header_sizer.Add(header, 0, wx.ALIGN_CENTER_VERTICAL)
         
-        # Add stretch spacer to push button to the right
+        # Add stretch spacer to center the title
         header_sizer.AddStretchSpacer()
-        
-        # Add "Selection Screen" button in top right - using ModernCard like start page
-        self.selection_card = ModernCard(self, "Selection Screen", self.on_back_to_start, enabled=True, font_size=18)
-        self.selection_card.SetMinSize((200, 50))
-        header_sizer.Add(self.selection_card, 0, wx.ALIGN_CENTER_VERTICAL)
         
         # Add header sizer to main sizer
         main_sizer.Add(header_sizer, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 25)
@@ -883,6 +878,20 @@ class DashboardPage(wx.Panel):
 
         # Small bottom spacer
         main_sizer.AddSpacer(20)
+
+        # Create bottom sizer for "Selection Screen" button in bottom right
+        bottom_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        
+        # Add stretch spacer to push button to the right
+        bottom_sizer.AddStretchSpacer()
+        
+        # Add "Selection Screen" button in bottom right - using ModernCard like start page
+        self.selection_card = ModernCard(self, "Selection Screen", self.on_back_to_start, enabled=True, font_size=18)
+        self.selection_card.SetMinSize((220, 50))  # 10% wider (200 * 1.1 = 220)
+        bottom_sizer.Add(self.selection_card, 0, wx.ALIGN_CENTER_VERTICAL)
+        
+        # Add bottom sizer to main sizer
+        main_sizer.Add(bottom_sizer, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 25)
 
         self.SetSizer(main_sizer)
 
