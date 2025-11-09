@@ -21,8 +21,11 @@ class CalibPage(wx.Panel):
         super().__init__(parent)
         self.shared_state = shared_state
         self.phase = self.PHASE_IDLE
-        self.phase_duration = 10.0  # seconds per phase
+        self.buffer_duration = 5.0   # seconds of transition/buffer per phase
+        self.collect_duration = 5.0  # seconds of data collection per phase
+        self.phase_duration = self.buffer_duration + self.collect_duration
         self.phase_elapsed = 0.0
+        self.subphase = None  # 'buffer' or 'collect'
 
         # Visual style
         self.bg_color = wx.Colour(248, 249, 250)
@@ -118,9 +121,9 @@ class CalibPage(wx.Panel):
         except Exception:
             pass
         self.instr_sizer.Add(self.phase_gauge_front, 0, wx.ALIGN_CENTER | wx.ALL, 8)
-        self.phase_label_front = wx.StaticText(self, label="Front: 10s")
+        self.phase_label_front = wx.StaticText(self, label="Front: 5s transitioning + 5s collect")
         self.phase_label_front.SetForegroundColour(self.label_color)
-        self.phase_label_front.SetFont(wx.Font(11, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        self.phase_label_front.SetFont(wx.Font(15, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
         self.instr_sizer.Add(self.phase_label_front, 0, wx.ALIGN_CENTER | wx.BOTTOM, 6)
 
         # second instruction
@@ -147,9 +150,9 @@ class CalibPage(wx.Panel):
             except Exception:
                 pass
             self.instr_sizer.Add(self.phase_gauge_back, 0, wx.ALIGN_CENTER | wx.ALL, 8)
-            self.phase_label_back = wx.StaticText(self, label="Back: 10s")
+            self.phase_label_back = wx.StaticText(self, label="Back: 5s transitioning + 5s collect")
             self.phase_label_back.SetForegroundColour(self.label_color)
-            self.phase_label_back.SetFont(wx.Font(11, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+            self.phase_label_back.SetFont(wx.Font(15, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
             self.instr_sizer.Add(self.phase_label_back, 0, wx.ALIGN_CENTER | wx.BOTTOM, 6)
         else:
             # spacer if missing
@@ -199,11 +202,12 @@ class CalibPage(wx.Panel):
             return
         self.phase = self.PHASE_FRONT
         self.phase_elapsed = 0.0
+        self.subphase = 'buffer'
         # ensure both gauges exist (create fallback if images missing)
         if not hasattr(self, 'phase_gauge_front'):
             self.phase_gauge_front = wx.Gauge(self, range=100, size=(420, 24))
             self.phase_gauge_front.SetValue(0)
-            self.phase_label_front = wx.StaticText(self, label="Front: 10s")
+            self.phase_label_front = wx.StaticText(self, label="Front: 5s transitioning + 5s collect")
             self.phase_label_front.SetForegroundColour(self.label_color)
             try:
                 self.phase_gauge_front.SetBackgroundColour(wx.Colour(240, 240, 240))
@@ -213,7 +217,7 @@ class CalibPage(wx.Panel):
         if not hasattr(self, 'phase_gauge_back'):
             self.phase_gauge_back = wx.Gauge(self, range=100, size=(420, 24))
             self.phase_gauge_back.SetValue(0)
-            self.phase_label_back = wx.StaticText(self, label="Back: 10s")
+            self.phase_label_back = wx.StaticText(self, label="Back: 5s transitioning + 5s collect")
             self.phase_label_back.SetForegroundColour(self.label_color)
             try:
                 self.phase_gauge_back.SetBackgroundColour(wx.Colour(240, 240, 240))
@@ -229,49 +233,81 @@ class CalibPage(wx.Panel):
 
     def on_timer(self, event):
         self.phase_elapsed += 0.1
-        frac = min(1.0, self.phase_elapsed / self.phase_duration)
-        # update only the active phase gauge so it appears under the correct image
-        remaining = max(0, int(self.phase_duration - self.phase_elapsed))
+
+        # Determine current subphase duration and update UI accordingly
+        if self.subphase == 'buffer':
+            current_duration = self.buffer_duration
+            frac = 0.0  # no progress bar during buffer
+        else:
+            current_duration = self.collect_duration
+            frac = min(1.0, self.phase_elapsed / current_duration)
+
+        remaining = max(0, int(current_duration - self.phase_elapsed))
+
+        # Update UI elements depending on phase and subphase
         if self.phase == self.PHASE_FRONT:
-            self.phase_gauge_front.SetValue(int(frac * 100))
-            if hasattr(self, 'phase_label_front'):
-                self.phase_label_front.SetLabel(f"Front: {remaining}s")
+            if self.subphase == 'buffer':
+                # Buffer countdown label, no gauge progress
+                if hasattr(self, 'phase_label_front'):
+                    self.phase_label_front.SetLabel(f"Front (transitioning): {remaining}s")
+                self.phase_gauge_front.SetValue(0)
+            else:
+                # Collection progress and label
+                self.phase_gauge_front.SetValue(int(frac * 100))
+                if hasattr(self, 'phase_label_front'):
+                    self.phase_label_front.SetLabel(f"Front (collect): {remaining}s")
         elif self.phase == self.PHASE_BACK:
-            self.phase_gauge_back.SetValue(int(frac * 100))
-            if hasattr(self, 'phase_label_back'):
-                self.phase_label_back.SetLabel(f"Back: {remaining}s")
+            if self.subphase == 'buffer':
+                if hasattr(self, 'phase_label_back'):
+                    self.phase_label_back.SetLabel(f"Back (transitioning): {remaining}s")
+                self.phase_gauge_back.SetValue(0)
+            else:
+                self.phase_gauge_back.SetValue(int(frac * 100))
+                if hasattr(self, 'phase_label_back'):
+                    self.phase_label_back.SetLabel(f"Back (collect): {remaining}s")
         self.Refresh()  # triggers OnPaint to update highlight
 
-        if self.phase_elapsed >= self.phase_duration:
-            if self.phase == self.PHASE_FRONT:
-                # record front position
-                if hasattr(self.shared_state, 'raw_seat_pos') and self.shared_state.raw_seat_pos:
-                    self.shared_state.front_max_pos = self.shared_state.raw_seat_pos[-1]
-                    self.shared_state.fes_active_pos = self.shared_state.front_max_pos - 96.5
-                # start back phase
-                self.phase = self.PHASE_BACK
+        # Handle subphase and phase transitions
+        if self.phase_elapsed >= current_duration:
+            if self.subphase == 'buffer':
+                # Move to collection subphase for the same phase
+                self.subphase = 'collect'
                 self.phase_elapsed = 0.0
-                # clear front gauge when moving to back
-                if hasattr(self, 'phase_gauge_front'):
+            else:
+                # Collection complete for current phase
+                if self.phase == self.PHASE_FRONT:
+                    # record front position at end of collection
+                    if hasattr(self.shared_state, 'raw_seat_pos') and self.shared_state.raw_seat_pos:
+                        self.shared_state.front_max_pos = self.shared_state.raw_seat_pos[-1]
+                        self.shared_state.fes_active_pos = self.shared_state.front_max_pos - 96.5
+                    # start back phase with buffer
+                    self.phase = self.PHASE_BACK
+                    self.subphase = 'buffer'
+                    self.phase_elapsed = 0.0
+                    # clear front gauge when moving to back
+                    if hasattr(self, 'phase_gauge_front'):
+                        self.phase_gauge_front.SetValue(0)
+                    if hasattr(self, 'phase_label_back'):
+                        self.phase_label_back.SetLabel("Back (transitioning): 5s")
+                elif self.phase == self.PHASE_BACK:
+                    # record back position at end of collection
+                    if hasattr(self.shared_state, 'raw_seat_pos') and self.shared_state.raw_seat_pos:
+                        self.shared_state.back_max_pos = self.shared_state.raw_seat_pos[-1]
+                        if self.shared_state.back_max_pos != self.shared_state.front_max_pos:
+                            self.shared_state.converted_fes_pos = 100 - (self.shared_state.fes_active_pos - self.shared_state.front_max_pos) / (self.shared_state.back_max_pos - self.shared_state.front_max_pos) * 100
+                    # stop after back collection
+                    self.phase = self.PHASE_IDLE
+                    self.subphase = None
+                    self.update_timer.Stop()
+                    self.begin_button.Disable()
+                    # clear both gauges and reset labels
                     self.phase_gauge_front.SetValue(0)
-            elif self.phase == self.PHASE_BACK:
-                # record back position
-                if hasattr(self.shared_state, 'raw_seat_pos') and self.shared_state.raw_seat_pos:
-                    self.shared_state.back_max_pos = self.shared_state.raw_seat_pos[-1]
-                    if self.shared_state.back_max_pos != self.shared_state.front_max_pos:
-                        self.shared_state.converted_fes_pos = 100 - (self.shared_state.fes_active_pos - self.shared_state.front_max_pos) / (self.shared_state.back_max_pos - self.shared_state.front_max_pos) * 100
-                # stop
-                self.phase = self.PHASE_IDLE
-                self.update_timer.Stop()
-                self.begin_button.Disable()
-                # clear both gauges and reset labels
-                self.phase_gauge_front.SetValue(0)
-                self.phase_gauge_back.SetValue(0)
-                if hasattr(self, 'phase_label_front'):
-                    self.phase_label_front.SetLabel(f"Front: {int(self.phase_duration)}s")
-                if hasattr(self, 'phase_label_back'):
-                    self.phase_label_back.SetLabel(f"Back: {int(self.phase_duration)}s")
-                wx.MessageBox("Calibration complete", "Info", wx.OK | wx.ICON_INFORMATION)
+                    self.phase_gauge_back.SetValue(0)
+                    if hasattr(self, 'phase_label_front'):
+                        self.phase_label_front.SetLabel("Front: 5s transitioning + 5s collect")
+                    if hasattr(self, 'phase_label_back'):
+                        self.phase_label_back.SetLabel("Back: 5s transitioning + 5s collect")
+                    wx.MessageBox("Calibration complete", "Info", wx.OK | wx.ICON_INFORMATION)
 
     def OnPaint(self, event):
         # default paint to preserve controls
@@ -323,6 +359,7 @@ class CalibPage(wx.Panel):
 
     def reset(self):
         self.phase = self.PHASE_IDLE
+        self.subphase = None
         if self.update_timer.IsRunning():
             self.update_timer.Stop()
         self.submit_button.Enable()
@@ -332,3 +369,7 @@ class CalibPage(wx.Panel):
             self.phase_gauge_front.SetValue(0)
         if hasattr(self, 'phase_gauge_back'):
             self.phase_gauge_back.SetValue(0)
+        if hasattr(self, 'phase_label_front'):
+            self.phase_label_front.SetLabel("Front: 5s transitioning + 5s collect")
+        if hasattr(self, 'phase_label_back'):
+            self.phase_label_back.SetLabel("Back: 5s transitioning + 5s collect")
