@@ -151,6 +151,9 @@ class LoginDialog(wx.Dialog):
         self.SetSizer(main_sizer)
         
         self.user_data = None
+        
+        # Prevent closing the dialog with the X button - users must log in
+        self.Bind(wx.EVT_CLOSE, self.on_close)
     
     def create_login_panel(self):
         """Create login panel"""
@@ -369,6 +372,13 @@ class LoginDialog(wx.Dialog):
             self.on_login(event)
         else:  # Register tab
             self.on_register(event)
+    
+    def on_close(self, event):
+        """Prevent closing the dialog - users must log in to proceed"""
+        # Veto the close event to prevent the dialog from closing
+        event.Veto()
+        # Optionally show a message to inform the user
+        wx.MessageBox("Please log in to access the dashboard.", "Login Required", wx.OK | wx.ICON_INFORMATION)
     
 class ModernCard(wx.Panel):
     """A modern card panel with shadow effect and hover interaction"""
@@ -912,152 +922,120 @@ class MapCard(wx.Panel):
         # Add stretch spacer to push content to center
         main_sizer.AddStretchSpacer()
         
-        # Create horizontal sizer for evenly spaced items
+        # Create horizontal sizer for evenly spaced items - 5 equal columns
         items_sizer = wx.BoxSizer(wx.HORIZONTAL)
         
-        # Add stretch spacer for even spacing
-        items_sizer.AddStretchSpacer()
+        import os
+        # Use the same approach as game_page.py
+        script_dir = os.path.dirname(os.path.dirname(__file__))
         
-        # Create vertical sizer for palm tree and Hawaii text
-        palm_sizer = wx.BoxSizer(wx.VERTICAL)
-        
-        # Add palm tree
-        try:
-            import os
-            # Use the same approach as game_page.py
-            script_dir = os.path.dirname(os.path.dirname(__file__))
-            palm_tree_path = os.path.join(script_dir, "palm-tree.png")
+        # Helper function to create a location column
+        def create_location_column(image_path, image_size, location_name, status_image_path, status_image_size):
+            """Create a vertical sizer for a location with image, text, and status icon"""
+            location_sizer = wx.BoxSizer(wx.VERTICAL)
             
-            palm_tree_image = wx.Image(palm_tree_path, wx.BITMAP_TYPE_PNG)
-            palm_tree_image = palm_tree_image.Scale(80, 80, wx.IMAGE_QUALITY_HIGH)
-            palm_tree_bitmap = wx.StaticBitmap(self, bitmap=wx.Bitmap(palm_tree_image))
-            palm_sizer.Add(palm_tree_bitmap, 0, wx.ALIGN_CENTER)
-        except Exception as e:
-            print(f"Error loading palm tree: {e}")
-            # Fallback to text
-            palm_tree_placeholder = wx.StaticText(self, label="PALM TREE")
-            palm_tree_placeholder.SetFont(wx.Font(16, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
-            palm_tree_placeholder.SetForegroundColour(wx.Colour(0, 150, 0))  # Green color
-            palm_sizer.Add(palm_tree_placeholder, 0, wx.ALIGN_CENTER)
-        
-        # Add "Hawaii" text below palm tree
-        hawaii_text = wx.StaticText(self, label="Hawaii")
-        hawaii_text.SetFont(wx.Font(14, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
-        hawaii_text.SetForegroundColour(wx.Colour(0, 100, 0))  # Dark green color
-        palm_sizer.Add(hawaii_text, 0, wx.ALIGN_CENTER)
-        
-        # Add check image below Hawaii text
-        try:
-            check_path = os.path.join(script_dir, "check.png")
-            check_image = wx.Image(check_path, wx.BITMAP_TYPE_PNG)
-            check_image = check_image.Scale(40, 40, wx.IMAGE_QUALITY_HIGH)
-            check_bitmap = wx.StaticBitmap(self, bitmap=wx.Bitmap(check_image))
-            palm_sizer.Add(check_bitmap, 0, wx.ALIGN_CENTER)
-        except Exception as e:
-            print(f"Error loading check image: {e}")
-            # Fallback to text
-            check_text = wx.StaticText(self, label="✓")
-            check_text.SetFont(wx.Font(16, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
-            check_text.SetForegroundColour(wx.Colour(0, 150, 0))  # Green color
-            palm_sizer.Add(check_text, 0, wx.ALIGN_CENTER)
-        
-        # Add the palm sizer to the main items sizer with top alignment to keep palm tree at same level
-        items_sizer.Add(palm_sizer, 0, wx.ALIGN_TOP)
-        
-        # Add stretch spacer for even spacing
-        items_sizer.AddStretchSpacer()
-        
-        # Create vertical sizer for iceberg and Antarctica text
-        iceberg_sizer = wx.BoxSizer(wx.VERTICAL)
-        
-        # Add iceberg
-        try:
-            # Use the same approach as palm tree
-            iceberg_path = os.path.join(script_dir, "iceberg.png")
+            # Fixed height container for images to ensure text alignment
+            # Use 95 pixels to accommodate the largest image (90px) with some padding
+            fixed_image_height = 95
+            image_panel = wx.Panel(self)
+            image_panel.SetMinSize((-1, fixed_image_height))
+            image_panel.SetMaxSize((-1, fixed_image_height))
+            image_panel_sizer = wx.BoxSizer(wx.VERTICAL)
             
-            iceberg_image = wx.Image(iceberg_path, wx.BITMAP_TYPE_PNG)
-            iceberg_image = iceberg_image.Scale(90, 90, wx.IMAGE_QUALITY_HIGH)
-            iceberg_bitmap = wx.StaticBitmap(self, bitmap=wx.Bitmap(iceberg_image))
-            iceberg_sizer.Add(iceberg_bitmap, 0, wx.ALIGN_CENTER)
-        except Exception as e:
-            print(f"Error loading iceberg: {e}")
-            # Fallback to text
-            iceberg_placeholder = wx.StaticText(self, label="ICEBERG")
-            iceberg_placeholder.SetFont(wx.Font(16, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
-            iceberg_placeholder.SetForegroundColour(wx.Colour(0, 100, 200))  # Blue color
-            iceberg_sizer.Add(iceberg_placeholder, 0, wx.ALIGN_CENTER)
-        
-        # Add "Antarctica" text below iceberg
-        antarctica_text = wx.StaticText(self, label="Antarctica")
-        antarctica_text.SetFont(wx.Font(14, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
-        antarctica_text.SetForegroundColour(wx.Colour(0, 0, 150))  # Blue color
-        iceberg_sizer.Add(antarctica_text, 0, wx.ALIGN_CENTER)
-        
-        # Add lock image below Antarctica text
-        try:
-            lock_path = os.path.join(script_dir, "lock.png")
-            lock_image = wx.Image(lock_path, wx.BITMAP_TYPE_PNG)
-            lock_image = lock_image.Scale(40, 40, wx.IMAGE_QUALITY_HIGH)
-            lock_bitmap = wx.StaticBitmap(self, bitmap=wx.Bitmap(lock_image))
-            iceberg_sizer.Add(lock_bitmap, 0, wx.ALIGN_CENTER)
-        except Exception as e:
-            print(f"Error loading lock image: {e}")
-            # Fallback to emoji
-            lock_text = wx.StaticText(self, label="🔒")
-            lock_text.SetFont(wx.Font(16, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
-            iceberg_sizer.Add(lock_text, 0, wx.ALIGN_CENTER)
-        
-        # Add the iceberg sizer to the main items sizer with top alignment
-        items_sizer.Add(iceberg_sizer, 0, wx.ALIGN_TOP)
-        
-        # Add stretch spacer for even spacing
-        items_sizer.AddStretchSpacer()
-        
-        # Create vertical sizer for jungle and Amazon text
-        jungle_sizer = wx.BoxSizer(wx.VERTICAL)
-        
-        # Add jungle
-        try:
-            # Use the same approach as other images
-            jungle_path = os.path.join(script_dir, "jungle.png")
+            # Add spacer to center image vertically
+            image_panel_sizer.AddStretchSpacer()
             
-            jungle_image = wx.Image(jungle_path, wx.BITMAP_TYPE_PNG)
-            jungle_image = jungle_image.Scale(70, 70, wx.IMAGE_QUALITY_HIGH)
-            jungle_bitmap = wx.StaticBitmap(self, bitmap=wx.Bitmap(jungle_image))
-            jungle_sizer.Add(jungle_bitmap, 0, wx.ALIGN_CENTER)
-        except Exception as e:
-            print(f"Error loading jungle: {e}")
-            # Fallback to text
-            jungle_placeholder = wx.StaticText(self, label="JUNGLE")
-            jungle_placeholder.SetFont(wx.Font(16, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
-            jungle_placeholder.SetForegroundColour(wx.Colour(0, 150, 0))  # Green color
-            jungle_sizer.Add(jungle_placeholder, 0, wx.ALIGN_CENTER)
+            # Add location image centered in fixed-height container
+            try:
+                location_image = wx.Image(image_path, wx.BITMAP_TYPE_PNG)
+                location_image = location_image.Scale(image_size, image_size, wx.IMAGE_QUALITY_HIGH)
+                location_bitmap = wx.StaticBitmap(image_panel, bitmap=wx.Bitmap(location_image))
+                image_panel_sizer.Add(location_bitmap, 0, wx.ALIGN_CENTER)
+            except Exception as e:
+                print(f"Error loading {image_path}: {e}")
+                # Fallback to text
+                placeholder = wx.StaticText(image_panel, label=location_name.upper())
+                placeholder.SetFont(wx.Font(16, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+                placeholder.SetForegroundColour(wx.Colour(0, 100, 0))
+                image_panel_sizer.Add(placeholder, 0, wx.ALIGN_CENTER)
+            
+            # Add spacer to center image vertically
+            image_panel_sizer.AddStretchSpacer()
+            
+            image_panel.SetSizer(image_panel_sizer)
+            image_panel_sizer.Fit(image_panel)
+            
+            # Add the image panel to location sizer
+            location_sizer.Add(image_panel, 0, wx.ALIGN_CENTER)
+            
+            # Add location name text with wrapping support
+            location_text = wx.StaticText(self, label=location_name, style=wx.ST_NO_AUTORESIZE)
+            location_text.SetFont(wx.Font(14, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+            # Set text color: grey for locked locations, green for unlocked
+            if "lock" in status_image_path.lower():
+                location_text.SetForegroundColour(wx.Colour(128, 128, 128))  # Grey for locked
+            else:
+                location_text.SetForegroundColour(wx.Colour(0, 100, 0))  # Green for unlocked
+            # Wrap text to fit within column width (approximately 1/5 of card width minus margins)
+            location_text.Wrap(60)  # Approximate width for text wrapping
+            location_sizer.Add(location_text, 0, wx.ALIGN_CENTER)
+            
+            # Add status image (check or lock)
+            try:
+                status_image = wx.Image(status_image_path, wx.BITMAP_TYPE_PNG)
+                status_image = status_image.Scale(status_image_size, status_image_size, wx.IMAGE_QUALITY_HIGH)
+                status_bitmap = wx.StaticBitmap(self, bitmap=wx.Bitmap(status_image))
+                location_sizer.Add(status_bitmap, 0, wx.ALIGN_CENTER)
+            except Exception as e:
+                print(f"Error loading {status_image_path}: {e}")
+                # Fallback to emoji
+                status_text = wx.StaticText(self, label="✓" if "check" in status_image_path.lower() else "🔒")
+                status_text.SetFont(wx.Font(16, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+                status_text.SetForegroundColour(wx.Colour(0, 150, 0) if "check" in status_image_path.lower() else wx.Colour(100, 100, 100))
+                location_sizer.Add(status_text, 0, wx.ALIGN_CENTER)
+            
+            return location_sizer
         
-        # Add "Amazon" text below jungle
-        amazon_text = wx.StaticText(self, label="Amazon")
-        amazon_text.SetFont(wx.Font(14, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
-        amazon_text.SetForegroundColour(wx.Colour(0, 100, 0))  # Green color (same as Hawaii)
-        jungle_sizer.Add(amazon_text, 0, wx.ALIGN_CENTER)
+        # Create 5 location columns, each in its own equal-width column
+        # Column 1: Hawaii
+        hawaii_sizer = create_location_column(
+            os.path.join(script_dir, "palm-tree.png"), 80,
+            "Hawaii",
+            os.path.join(script_dir, "check.png"), 40
+        )
+        items_sizer.Add(hawaii_sizer, 1, wx.EXPAND)
         
-        # Add lock image below Amazon text
-        try:
-            lock_path = os.path.join(script_dir, "lock.png")
-            lock_image = wx.Image(lock_path, wx.BITMAP_TYPE_PNG)
-            lock_image = lock_image.Scale(40, 40, wx.IMAGE_QUALITY_HIGH)
-            lock_bitmap = wx.StaticBitmap(self, bitmap=wx.Bitmap(lock_image))
-            jungle_sizer.Add(lock_bitmap, 0, wx.ALIGN_CENTER)
-        except Exception as e:
-            print(f"Error loading lock image: {e}")
-            # Fallback to emoji
-            lock_text2 = wx.StaticText(self, label="🔒")
-            lock_text2.SetFont(wx.Font(16, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
-            jungle_sizer.Add(lock_text2, 0, wx.ALIGN_CENTER)
+        # Column 2: Antarctica
+        antarctica_sizer = create_location_column(
+            os.path.join(script_dir, "iceberg.png"), 90,
+            "Antarctica",
+            os.path.join(script_dir, "lock.png"), 40
+        )
+        items_sizer.Add(antarctica_sizer, 1, wx.EXPAND)
         
-        # Add the jungle sizer to the main items sizer with top alignment
-        items_sizer.Add(jungle_sizer, 0, wx.ALIGN_TOP)
+        # Column 3: Amazon
+        amazon_sizer = create_location_column(
+            os.path.join(script_dir, "jungle.png"), 70,
+            "Amazon",
+            os.path.join(script_dir, "lock.png"), 40
+        )
+        items_sizer.Add(amazon_sizer, 1, wx.EXPAND)
         
-        # Add stretch spacer for even spacing
-        items_sizer.AddStretchSpacer()
+        # Column 4: Japan
+        japan_sizer = create_location_column(
+            os.path.join(script_dir, "japan.png"), 80,
+            "Japan",
+            os.path.join(script_dir, "lock.png"), 40
+        )
+        items_sizer.Add(japan_sizer, 1, wx.EXPAND)
+        
+        # Column 5: Australia
+        australia_sizer = create_location_column(
+            os.path.join(script_dir, "australia.png"), 80,
+            "Australia",
+            os.path.join(script_dir, "lock.png"), 40
+        )
+        items_sizer.Add(australia_sizer, 1, wx.EXPAND)
         
         # Add the items sizer to main sizer
         main_sizer.Add(items_sizer, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 30)
