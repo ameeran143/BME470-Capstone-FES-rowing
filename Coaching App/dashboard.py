@@ -4,7 +4,372 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_wxagg import FigureCanvasWxAgg as FigureCanvas
 from matplotlib.figure import Figure
 from button import CustomButton
+import os
+import json
+import hashlib
+import secrets
+from datetime import datetime
 
+class AccountManager:
+    """Manages user accounts and authentication"""
+    def __init__(self):
+        # Store accounts file in the same directory as dashboard.py (Coaching App folder)
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        self.accounts_file = os.path.join(script_dir, "user_accounts.json")
+        self.accounts = self.load_accounts()
+    
+    def load_accounts(self):
+        """Load accounts from file"""
+        try:
+            if os.path.exists(self.accounts_file):
+                with open(self.accounts_file, "r") as f:
+                    return json.load(f)
+        except:
+            pass
+        return {}
+    
+    def save_accounts(self):
+        """Save accounts to file"""
+        try:
+            with open(self.accounts_file, "w") as f:
+                json.dump(self.accounts, f, indent=2)
+        except:
+            pass
+    
+    def hash_password(self, password):
+        """Hash password with salt"""
+        salt = secrets.token_hex(16)
+        password_hash = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt.encode('utf-8'), 100000)
+        return salt, password_hash.hex()
+    
+    def verify_password(self, password, salt, stored_hash):
+        """Verify password against stored hash"""
+        password_hash = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt.encode('utf-8'), 100000)
+        return password_hash.hex() == stored_hash
+    
+    def create_account(self, username, password, email="", name="", age=None, height=None, weight=None, gender=""):
+        """Create a new user account"""
+        if username in self.accounts:
+            return False, "Username already exists"
+        
+        if len(password) < 6:
+            return False, "Password must be at least 6 characters"
+        
+        salt, password_hash = self.hash_password(password)
+        
+        # Create default user data
+        user_data = {
+            "username": username,
+            "email": email,
+            "name": name,
+            "age": age,
+            "height": height,  # in cm
+            "weight": weight,  # in kg
+            "gender": gender,
+            "password_salt": salt,
+            "password_hash": password_hash,
+            "created_date": datetime.now().isoformat(),
+            "total_sessions": 0,
+            "total_time": 0,
+            "best_stroke_rate": 0,
+            "achievements": {
+                "first_session": False,
+                "ten_sessions": False,
+                "perfect_form": False,
+                "endurance_master": False,
+                "speed_demon": False
+            },
+            "progress_level": 1,
+            "last_session": None
+        }
+        
+        self.accounts[username] = user_data
+        self.save_accounts()
+        return True, "Account created successfully"
+    
+    def authenticate(self, username, password):
+        """Authenticate user login"""
+        if username not in self.accounts:
+            return False, "Invalid username or password"
+        
+        user_data = self.accounts[username]
+        salt = user_data["password_salt"]
+        stored_hash = user_data["password_hash"]
+        
+        if self.verify_password(password, salt, stored_hash):
+            return True, user_data
+        else:
+            return False, "Invalid username or password"
+    
+    def update_user_data(self, username, user_data):
+        """Update user data"""
+        if username in self.accounts:
+            self.accounts[username].update(user_data)
+            self.save_accounts()
+            return True
+        return False
+
+class LoginDialog(wx.Dialog):
+    """Enhanced login dialog with registration support"""
+    def __init__(self, parent, account_manager):
+        super(LoginDialog, self).__init__(parent, title="User Account", size=(500, 400))
+        self.account_manager = account_manager
+        self.SetBackgroundColour(wx.Colour(248, 249, 250))
+        
+        # Create notebook for login/register tabs
+        self.notebook = wx.Notebook(self)
+        
+        # Login tab
+        self.login_panel = self.create_login_panel()
+        self.notebook.AddPage(self.login_panel, "Login")
+        
+        # Register tab
+        self.register_panel = self.create_register_panel()
+        self.notebook.AddPage(self.register_panel, "Create Account")
+        
+        # Bind tab change event
+        self.notebook.Bind(wx.EVT_NOTEBOOK_PAGE_CHANGED, self.on_tab_changed)
+        
+        # Main sizer
+        main_sizer = wx.BoxSizer(wx.VERTICAL)
+        main_sizer.Add(self.notebook, 1, wx.EXPAND | wx.ALL, 20)
+        
+        # Bottom buttons
+        button_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        
+        # Center the action button
+        button_sizer.AddStretchSpacer()
+        
+        # Action button (Login/Register) - using ModernCard to match logout button style
+        self.action_btn = ModernCard(self, "Login", self.on_action_click, enabled=True, font_size=18)
+        self.action_btn.SetMinSize((100, 35))
+        button_sizer.Add(self.action_btn, 0, wx.ALL, 10)
+        
+        button_sizer.AddStretchSpacer()
+
+        main_sizer.Add(button_sizer, 0, wx.EXPAND)
+        self.SetSizer(main_sizer)
+        
+        self.user_data = None
+    
+    def create_login_panel(self):
+        """Create login panel"""
+        panel = wx.Panel(self.notebook)
+        panel.SetBackgroundColour(wx.Colour(248, 249, 250))
+        
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.AddSpacer(10)
+        
+        # Title
+        title = wx.StaticText(panel, label="Login to Your Account")
+        title_font = wx.Font(20, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
+        title.SetFont(title_font)
+        title.SetForegroundColour(wx.Colour(33, 37, 41))
+        sizer.Add(title, 0, wx.ALIGN_CENTER | wx.ALL, 20)
+        
+        # Username field
+        username_label = wx.StaticText(panel, label="Username:")
+        username_label.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        sizer.Add(username_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 10)
+        
+        self.login_username = wx.TextCtrl(panel, size=(300, 30))
+        self.login_username.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        sizer.Add(self.login_username, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
+        
+        # Password field
+        password_label = wx.StaticText(panel, label="Password:")
+        password_label.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        sizer.Add(password_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 10)
+        
+        self.login_password = wx.TextCtrl(panel, size=(300, 30), style=wx.TE_PASSWORD)
+        self.login_password.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        sizer.Add(self.login_password, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
+        
+        # Demo account info
+        demo_info = wx.StaticText(panel, label="Demo Account: username='demo', password='demo123'")
+        demo_info.SetFont(wx.Font(10, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_ITALIC, wx.FONTWEIGHT_NORMAL))
+        demo_info.SetForegroundColour(wx.Colour(100, 100, 100))
+        sizer.Add(demo_info, 0, wx.ALIGN_CENTER | wx.ALL, 10)
+        
+        panel.SetSizer(sizer)
+        return panel
+    
+    def create_register_panel(self):
+        """Create registration panel"""
+        panel = wx.Panel(self.notebook)
+        panel.SetBackgroundColour(wx.Colour(248, 249, 250))
+        
+        # Create scrollable panel for more fields
+        scroll_panel = wx.ScrolledWindow(panel)
+        scroll_panel.SetScrollRate(0, 10)
+        scroll_panel.SetMinSize((500, 400))
+        
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.AddSpacer(10)
+        
+        # Title
+        title = wx.StaticText(scroll_panel, label="Create New Account")
+        title_font = wx.Font(20, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
+        title.SetFont(title_font)
+        title.SetForegroundColour(wx.Colour(33, 37, 41))
+        sizer.Add(title, 0, wx.ALIGN_CENTER | wx.ALL, 15)
+        
+        # Name field
+        name_label = wx.StaticText(scroll_panel, label="Full Name:")
+        name_label.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        sizer.Add(name_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 10)
+        
+        self.reg_name = wx.TextCtrl(scroll_panel, size=(300, 30))
+        self.reg_name.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        sizer.Add(self.reg_name, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+        
+        # Username field
+        username_label = wx.StaticText(scroll_panel, label="Username:")
+        username_label.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        sizer.Add(username_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 10)
+        
+        self.reg_username = wx.TextCtrl(scroll_panel, size=(300, 30))
+        self.reg_username.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        sizer.Add(self.reg_username, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+        
+        # Password section
+        password_label = wx.StaticText(scroll_panel, label="Password (min 6 characters):")
+        password_label.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        sizer.Add(password_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 20)
+        
+        self.reg_password = wx.TextCtrl(scroll_panel, size=(300, 30), style=wx.TE_PASSWORD)
+        self.reg_password.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        sizer.Add(self.reg_password, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+        
+        # Confirm password field
+        confirm_label = wx.StaticText(scroll_panel, label="Confirm Password:")
+        confirm_label.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        sizer.Add(confirm_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 10)
+        
+        self.reg_confirm = wx.TextCtrl(scroll_panel, size=(300, 30), style=wx.TE_PASSWORD)
+        self.reg_confirm.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        sizer.Add(self.reg_confirm, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
+
+        # Email field
+        email_label = wx.StaticText(scroll_panel, label="Email (optional):")
+        email_label.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        sizer.Add(email_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 10)
+        
+        self.reg_email = wx.TextCtrl(scroll_panel, size=(300, 30))
+        self.reg_email.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        sizer.Add(self.reg_email, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+        
+        # Personal info section
+        personal_label = wx.StaticText(scroll_panel, label="Personal Information (optional):")
+        personal_font = wx.Font(14, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
+        personal_label.SetFont(personal_font)
+        personal_label.SetForegroundColour(wx.Colour(33, 37, 41))
+        sizer.Add(personal_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 20)
+        
+        # Age field
+        age_label = wx.StaticText(scroll_panel, label="Age:")
+        age_label.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        sizer.Add(age_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 15)
+        
+        self.reg_age = wx.SpinCtrl(scroll_panel, size=(100, 30), min=1, max=120, initial=25)
+        self.reg_age.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        sizer.Add(self.reg_age, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+        
+        # Gender field
+        gender_label = wx.StaticText(scroll_panel, label="Gender:")
+        gender_label.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        sizer.Add(gender_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 10)
+        
+        self.reg_gender = wx.Choice(scroll_panel, size=(150, 30), choices=["", "Male", "Female", "Other", "Prefer not to say"])
+        self.reg_gender.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        sizer.Add(self.reg_gender, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+        
+        scroll_panel.SetSizer(sizer)
+        
+        # Main panel sizer
+        main_sizer = wx.BoxSizer(wx.VERTICAL)
+        main_sizer.Add(scroll_panel, 1, wx.EXPAND | wx.ALL, 10)
+        panel.SetSizer(main_sizer)
+        
+        return panel
+    
+    def on_login(self, event):
+        """Handle login button click"""
+        username = self.login_username.GetValue().strip()
+        password = self.login_password.GetValue()
+        
+        if not username or not password:
+            wx.MessageBox("Please enter both username and password", "Login Error", wx.OK | wx.ICON_ERROR)
+            return
+        
+        success, result = self.account_manager.authenticate(username, password)
+        
+        if success:
+            self.user_data = result
+            self.EndModal(wx.ID_OK)
+        else:
+            wx.MessageBox(result, "Login Failed", wx.OK | wx.ICON_ERROR)
+    
+    def on_register(self, event):
+        """Handle registration button click"""
+        username = self.reg_username.GetValue().strip()
+        email = self.reg_email.GetValue().strip()
+        name = self.reg_name.GetValue().strip()
+        age = self.reg_age.GetValue()
+        gender = self.reg_gender.GetStringSelection()
+        password = self.reg_password.GetValue()
+        confirm = self.reg_confirm.GetValue()
+        
+        if not username or not password:
+            wx.MessageBox("Please enter username and password", "Registration Error", wx.OK | wx.ICON_ERROR)
+            return
+        
+        if password != confirm:
+            wx.MessageBox("Passwords do not match", "Registration Error", wx.OK | wx.ICON_ERROR)
+            return
+        
+        # Convert empty strings to None for optional fields
+        if not name:
+            name = ""
+        if not email:
+            email = ""
+        if not gender:
+            gender = ""
+        
+        success, message = self.account_manager.create_account(
+            username, password, email, name, age, None, None, gender
+        )
+        
+        if success:
+            wx.MessageBox(message, "Account Created", wx.OK | wx.ICON_INFORMATION)
+            # Switch to login tab and fill in username
+            self.notebook.SetSelection(0)
+            self.login_username.SetValue(username)
+            self.login_password.SetValue("")
+            # Update button to show login
+            self.action_btn.label_text = "Login"
+            self.action_btn.Refresh()
+        else:
+            wx.MessageBox(message, "Registration Failed", wx.OK | wx.ICON_ERROR)
+    
+    def on_tab_changed(self, event):
+        """Handle tab change event"""
+        current_page = self.notebook.GetSelection()
+        if current_page == 0:  # Login tab
+            self.action_btn.label_text = "Login"
+            self.action_btn.Refresh()
+        else:  # Register tab
+            self.action_btn.label_text = "Create"
+            self.action_btn.Refresh()
+    
+    def on_action_click(self, event):
+        """Handle action button click (Login or Register)"""
+        current_page = self.notebook.GetSelection()
+        if current_page == 0:  # Login tab
+            self.on_login(event)
+        else:  # Register tab
+            self.on_register(event)
+    
 class ModernCard(wx.Panel):
     """A modern card panel with shadow effect and hover interaction"""
     def __init__(self, parent, label, handler=None, enabled=True, font_size=38):
@@ -86,7 +451,7 @@ class ModernCard(wx.Panel):
 
 class UserInfoCard(wx.Panel):
     """A custom card for displaying user information"""
-    def __init__(self, parent):
+    def __init__(self, parent, user_data=None):
         super(UserInfoCard, self).__init__(parent)
         
         # Set base colors
@@ -114,54 +479,73 @@ class UserInfoCard(wx.Panel):
         # Create info fields
         info_sizer = wx.BoxSizer(wx.VERTICAL)
         
+        # Store references to value labels for updating
+        name_font = wx.Font(24, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
+        
         # Name field - on same line
         name_sizer = wx.BoxSizer(wx.HORIZONTAL)
         name_label = wx.StaticText(self, label="Name:")
-        name_font = wx.Font(24, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
         name_label.SetFont(name_font)
         name_label.SetForegroundColour(self.text_color)
         name_sizer.Add(name_label, 0, wx.ALIGN_CENTER_VERTICAL)
         
-        name_value = wx.StaticText(self, label="John Doe")
-        name_value.SetFont(name_font)
-        name_value.SetForegroundColour(self.text_color)
-        name_sizer.Add(name_value, 0, wx.LEFT | wx.ALIGN_CENTER_VERTICAL, 10)
+        self.name_value = wx.StaticText(self, label="")
+        self.name_value.SetFont(name_font)
+        self.name_value.SetForegroundColour(self.text_color)
+        name_sizer.Add(self.name_value, 0, wx.LEFT | wx.ALIGN_CENTER_VERTICAL, 10)
         info_sizer.Add(name_sizer, 0, wx.LEFT, 40)
         
         info_sizer.AddSpacer(15)
         
-        # Longest Distance field - on same line
-        distance_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        distance_label = wx.StaticText(self, label="Longest Distance:")
-        distance_label.SetFont(name_font)
-        distance_label.SetForegroundColour(self.text_color)
-        distance_sizer.Add(distance_label, 0, wx.ALIGN_CENTER_VERTICAL)
+        # Total Sessions field - on same line
+        sessions_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        sessions_label = wx.StaticText(self, label="Total Sessions:")
+        sessions_label.SetFont(name_font)
+        sessions_label.SetForegroundColour(self.text_color)
+        sessions_sizer.Add(sessions_label, 0, wx.ALIGN_CENTER_VERTICAL)
         
-        distance_value = wx.StaticText(self, label="2.5 km")
-        distance_value.SetFont(name_font)
-        distance_value.SetForegroundColour(self.text_color)
-        distance_sizer.Add(distance_value, 0, wx.LEFT | wx.ALIGN_CENTER_VERTICAL, 10)
-        info_sizer.Add(distance_sizer, 0, wx.LEFT, 40)
+        self.sessions_value = wx.StaticText(self, label="")
+        self.sessions_value.SetFont(name_font)
+        self.sessions_value.SetForegroundColour(self.text_color)
+        sessions_sizer.Add(self.sessions_value, 0, wx.LEFT | wx.ALIGN_CENTER_VERTICAL, 10)
+        info_sizer.Add(sessions_sizer, 0, wx.LEFT, 40)
         
         info_sizer.AddSpacer(15)
         
-        # Longest Time field - on same line
-        time_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        time_label = wx.StaticText(self, label="Longest Time:")
-        time_label.SetFont(name_font)
-        time_label.SetForegroundColour(self.text_color)
-        time_sizer.Add(time_label, 0, wx.ALIGN_CENTER_VERTICAL)
+        # Best Stroke Rate field - on same line
+        stroke_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        stroke_label = wx.StaticText(self, label="Best Stroke Rate:")
+        stroke_label.SetFont(name_font)
+        stroke_label.SetForegroundColour(self.text_color)
+        stroke_sizer.Add(stroke_label, 0, wx.ALIGN_CENTER_VERTICAL)
         
-        time_value = wx.StaticText(self, label="15:30")
-        time_value.SetFont(name_font)
-        time_value.SetForegroundColour(self.text_color)
-        time_sizer.Add(time_value, 0, wx.LEFT | wx.ALIGN_CENTER_VERTICAL, 10)
-        info_sizer.Add(time_sizer, 0, wx.LEFT, 40)
+        self.stroke_value = wx.StaticText(self, label="")
+        self.stroke_value.SetFont(name_font)
+        self.stroke_value.SetForegroundColour(self.text_color)
+        stroke_sizer.Add(self.stroke_value, 0, wx.LEFT | wx.ALIGN_CENTER_VERTICAL, 10)
+        info_sizer.Add(stroke_sizer, 0, wx.LEFT, 40)
         
         main_sizer.Add(info_sizer, 1, wx.EXPAND)
         main_sizer.AddSpacer(30)
         
         self.SetSizer(main_sizer)
+        
+        # Update with user data if provided
+        if user_data:
+            self.update_user_data(user_data)
+    
+    def update_user_data(self, user_data):
+        """Update the card with user data"""
+        name = user_data.get('name', '') or user_data.get('username', 'Not provided')
+        self.name_value.SetLabel(name)
+        
+        total_sessions = user_data.get('total_sessions', 0)
+        self.sessions_value.SetLabel(str(total_sessions))
+        
+        best_stroke_rate = user_data.get('best_stroke_rate', 0)
+        self.stroke_value.SetLabel(f"{best_stroke_rate} spm")
+        
+        self.Layout()
         
     def OnPaint(self, event):
         dc = wx.PaintDC(self)
@@ -385,7 +769,7 @@ class AchievementCard(wx.Panel):
 
 class AchievementsCard(wx.Panel):
     """A custom card for displaying achievements with scrollable list"""
-    def __init__(self, parent):
+    def __init__(self, parent, user_data=None):
         super(AchievementsCard, self).__init__(parent)
         
         # Set base colors - matching dashboard style
@@ -411,44 +795,72 @@ class AchievementsCard(wx.Panel):
         main_sizer.AddSpacer(5)
         
         # Create scrollable panel for achievements
-        scroll_panel = wx.ScrolledWindow(self, style=wx.VSCROLL)
-        scroll_panel.SetBackgroundColour(self.bg_color)
-        scroll_panel.SetScrollRate(0, 10)
+        self.scroll_panel = wx.ScrolledWindow(self, style=wx.VSCROLL)
+        self.scroll_panel.SetBackgroundColour(self.bg_color)
+        self.scroll_panel.SetScrollRate(0, 10)
         
         # Create sizer for scrollable content
-        scroll_sizer = wx.BoxSizer(wx.VERTICAL)
-        scroll_sizer.AddSpacer(5)
+        self.scroll_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.scroll_sizer.AddSpacer(5)
+        
+        self.scroll_panel.SetSizer(self.scroll_sizer)
+        
+        # Add scroll panel to main sizer with proper sizing
+        main_sizer.Add(self.scroll_panel, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 20)
+        main_sizer.AddSpacer(10)
+        
+        self.SetSizer(main_sizer)
+        
+        # Update with user data if provided
+        if user_data:
+            self.update_achievements(user_data)
+    
+    def update_achievements(self, user_data):
+        """Update achievements display with user data"""
+        # Clear existing achievement cards
+        for child in self.scroll_panel.GetChildren():
+            if isinstance(child, AchievementCard):
+                child.Destroy()
+        
+        # Clear the sizer
+        self.scroll_sizer.Clear(True)
+        self.scroll_sizer.AddSpacer(5)
+        
+        # Get user achievements
+        achievements_data = user_data.get('achievements', {})
         
         # Define achievements with more detailed descriptions
-        # Note: You can replace the unlocked values with actual user_data['achievements'] when available
         achievements = [
-            ("First Session", "Complete your first rowing session to get started on your rowing journey", True),
-            ("Ten Sessions", "Complete 10 rowing sessions to build consistency and habit", False),
-            ("Perfect Form", "Maintain perfect rowing form for 5 consecutive minutes", False),
-            ("Endurance Master", "Row continuously for 30+ minutes without stopping", True),
-            ("Speed Demon", "Achieve a stroke rate of 35+ strokes per minute", False),
-            ("Week Warrior", "Complete 7 rowing sessions in a single week", False),
-            ("Monthly Milestone", "Complete 20 rowing sessions in a month", False),
-            ("Consistency King", "Row for 5 consecutive days", False)
+            ("First Session", "Complete your first rowing session to get started on your rowing journey", 
+             achievements_data.get('first_session', False)),
+            ("Ten Sessions", "Complete 10 rowing sessions to build consistency and habit", 
+             achievements_data.get('ten_sessions', False)),
+            ("Perfect Form", "Maintain perfect rowing form for 5 consecutive minutes", 
+             achievements_data.get('perfect_form', False)),
+            ("Endurance Master", "Row continuously for 30+ minutes without stopping", 
+             achievements_data.get('endurance_master', False)),
+            ("Speed Demon", "Achieve a stroke rate of 35+ strokes per minute", 
+             achievements_data.get('speed_demon', False)),
+            ("Week Warrior", "Complete 7 rowing sessions in a single week", 
+             achievements_data.get('week_warrior', False)),
+            ("Monthly Milestone", "Complete 20 rowing sessions in a month", 
+             achievements_data.get('monthly_milestone', False)),
+            ("Consistency King", "Row for 5 consecutive days", 
+             achievements_data.get('consistency_king', False))
         ]
         
         # Create achievement cards
         for title_text, description, unlocked in achievements:
-            achievement_card = AchievementCard(scroll_panel, title_text, description, unlocked)
-            scroll_sizer.Add(achievement_card, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
+            achievement_card = AchievementCard(self.scroll_panel, title_text, description, unlocked)
+            self.scroll_sizer.Add(achievement_card, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
         
-        scroll_sizer.AddSpacer(5)
-        scroll_panel.SetSizer(scroll_sizer)
+        self.scroll_sizer.AddSpacer(5)
         
         # Set virtual size for scrolling
-        scroll_panel.SetVirtualSize(scroll_sizer.GetMinSize())
-        scroll_panel.EnableScrolling(True, True)
-        
-        # Add scroll panel to main sizer with proper sizing
-        main_sizer.Add(scroll_panel, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 20)
-        main_sizer.AddSpacer(10)
-        
-        self.SetSizer(main_sizer)
+        self.scroll_panel.SetVirtualSize(self.scroll_sizer.GetMinSize())
+        self.scroll_panel.EnableScrolling(True, True)
+        self.scroll_panel.Layout()
+        self.Layout()
         
     def OnPaint(self, event):
         """Paint the card background with shadow and border"""
@@ -791,21 +1203,103 @@ class DashboardPage(wx.Panel):
         super(DashboardPage, self).__init__(parent)
         # Light gradient-like background
         self.SetBackgroundColour(wx.Colour(248, 249, 250))
+        
+        # Initialize account manager
+        self.account_manager = AccountManager()
+        self.user_data = None
+        self.is_logged_in = False
+        self.current_username = None
+        
+        # Create demo account if no accounts exist
+        self.create_demo_account()
+        
+        # Require login before showing dashboard
+        if not self.require_login():
+            # If login was cancelled, show empty dashboard
+            self.create_empty_layout()
+            return
+        
+        # Create the dashboard layout
+        self.create_layout()
 
+    def create_demo_account(self):
+        """Create a demo account if no accounts exist"""
+        if not self.account_manager.accounts:
+            self.account_manager.create_account("demo", "demo123", "demo@example.com")
+            # Add some demo data
+            demo_data = self.account_manager.accounts["demo"]
+            demo_data.update({
+                "total_sessions": 15,
+                "total_time": 120,
+                "best_stroke_rate": 32,
+                "achievements": {
+                    "first_session": True,
+                    "ten_sessions": True,
+                    "perfect_form": False,
+                    "endurance_master": False,
+                    "speed_demon": True
+                },
+                "progress_level": 3,
+                "last_session": "2024-01-15"
+            })
+            self.account_manager.save_accounts()
+    
+    def require_login(self):
+        """Show login dialog and require login before proceeding"""
+        login_dialog = LoginDialog(self, self.account_manager)
+        result = login_dialog.ShowModal()
+        
+        if result == wx.ID_OK and login_dialog.user_data:
+            self.user_data = login_dialog.user_data
+            self.current_username = self.user_data["username"]
+            self.is_logged_in = True
+            login_dialog.Destroy()
+            # Notify start page to show logout button - use CallLater with delay to ensure UI updates
+            # Call multiple times to ensure it works (with increasing delays)
+            wx.CallLater(100, self.update_start_page_logout_button)
+            wx.CallLater(300, self.update_start_page_logout_button)
+            return True
+        else:
+            login_dialog.Destroy()
+            return False
+    
+    def update_start_page_logout_button(self):
+        """Update logout button visibility on start page"""
+        parent = self.GetParent()
+        if hasattr(parent, 'start_page') and hasattr(parent.start_page, 'update_logout_button'):
+            try:
+                parent.start_page.update_logout_button()
+            except Exception as e:
+                # If update fails, try again after a short delay
+                wx.CallLater(100, parent.start_page.update_logout_button)
+    
+    def create_empty_layout(self):
+        """Create an empty layout when login is cancelled"""
+        main_sizer = wx.BoxSizer(wx.VERTICAL)
+        empty_text = wx.StaticText(self, label="Please login to view your dashboard")
+        empty_text.SetFont(wx.Font(24, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        empty_text.SetForegroundColour(wx.Colour(100, 100, 100))
+        main_sizer.Add(empty_text, 1, wx.ALIGN_CENTER | wx.ALL, 50)
+        self.SetSizer(main_sizer)
+    
+    def create_layout(self):
+        """Create the main dashboard layout"""
         main_sizer = wx.BoxSizer(wx.VERTICAL)
         
-        # Create header sizer for title
+        # Create header sizer for title and login button
         header_sizer = wx.BoxSizer(wx.HORIZONTAL)
         
         # Add stretch spacer to center the title
         header_sizer.AddStretchSpacer()
         
-        # Header: "Hello, John" - aesthetically pleasing and centered
-        header = wx.StaticText(self, label="Hello, John")
+        # Header: Dynamic greeting based on user name
+        user_name = self.user_data.get('name', '') or self.user_data.get('username', 'User')
+        header_text = f"Hello, {user_name}"
+        self.header = wx.StaticText(self, label=header_text)
         header_font = wx.Font(36, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
-        header.SetFont(header_font)
-        header.SetForegroundColour(wx.Colour(33, 37, 41))
-        header_sizer.Add(header, 0, wx.ALIGN_CENTER_VERTICAL)
+        self.header.SetFont(header_font)
+        self.header.SetForegroundColour(wx.Colour(33, 37, 41))
+        header_sizer.Add(self.header, 0, wx.ALIGN_CENTER_VERTICAL)
         
         # Add stretch spacer to center the title
         header_sizer.AddStretchSpacer()
@@ -823,10 +1317,10 @@ class DashboardPage(wx.Panel):
         grid_sizer.AddGrowableRow(0, 35)  # Top row gets 35% of height
         grid_sizer.AddGrowableRow(1, 65)  # Bottom row gets 65% of height
 
-        # Create modern card sections - much bigger, empty boxes
-        self.section1_card = UserInfoCard(self)
+        # Create modern card sections with user data
+        self.section1_card = UserInfoCard(self, self.user_data)
         self.section2_card = StatisticsCard(self)
-        self.section3_card = AchievementsCard(self)
+        self.section3_card = AchievementsCard(self, self.user_data)
         self.section4_card = MapCard(self)
         
 
@@ -857,7 +1351,10 @@ class DashboardPage(wx.Panel):
         main_sizer.Add(bottom_sizer, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 25)
 
         self.SetSizer(main_sizer)
-
+        
+        # Ensure logout button on start page is updated after layout is created
+        self.update_start_page_logout_button()
+    
     def on_back_to_start(self, event):
         parent = self.GetParent()
         parent.switch_to_start_page()

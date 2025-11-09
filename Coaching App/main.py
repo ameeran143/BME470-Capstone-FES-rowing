@@ -70,8 +70,9 @@ class MainFrame(wx.Frame):
         self.current_panel.Hide()
         self.start_page.Show()
         self.current_panel = self.start_page
-        self.start_page.manual_button.Enable()
-        #self.start_page.auto_button.Enable()
+        # Update logout button visibility based on login state
+        if hasattr(self.start_page, 'update_logout_button'):
+            self.start_page.update_logout_button()
         self.Refresh()
         self.Layout()
     
@@ -91,6 +92,16 @@ class MainFrame(wx.Frame):
 
     def switch_to_dashboard_page(self):
         self.current_panel.Hide()
+        # Check if user is logged in, if not require login
+        if not self.dashboard_page.is_logged_in:
+            if self.dashboard_page.require_login():
+                # Login successful, recreate layout with user data
+                self.dashboard_page.DestroyChildren()
+                self.dashboard_page.create_layout()
+            else:
+                # Login cancelled, show empty layout
+                self.dashboard_page.DestroyChildren()
+                self.dashboard_page.create_empty_layout()
         self.dashboard_page.Show()
         self.current_panel = self.dashboard_page
         self.Refresh()

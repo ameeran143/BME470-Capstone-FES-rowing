@@ -87,6 +87,18 @@ class StartPage(wx.Panel):
 
         main_sizer = wx.BoxSizer(wx.VERTICAL)
         
+        # Top bar with logout button
+        top_bar = wx.BoxSizer(wx.HORIZONTAL)
+        top_bar.AddStretchSpacer()
+        
+        # Logout button in top right (only visible when logged in)
+        self.logout_card = ModernCard(self, "Logout", self.on_logout, enabled=True, font_size=18)
+        self.logout_card.SetMinSize((120, 50))
+        self.logout_card.Hide()  # Hidden by default, shown when logged in
+        top_bar.Add(self.logout_card, 0, wx.ALIGN_CENTER_VERTICAL | wx.TOP | wx.RIGHT, 25)
+        
+        main_sizer.Add(top_bar, 0, wx.EXPAND)
+        
         main_sizer.AddSpacer(50)
 
         # Title: "Select Mode" - more elegant
@@ -132,6 +144,21 @@ class StartPage(wx.Panel):
         main_sizer.Add(bottom_bar, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
 
         self.SetSizer(main_sizer)
+        
+        # Flag to prevent on_show from interfering during logout/login
+        self._updating_logout = False
+        
+        # Bind to show event to update logout button when page is shown
+        self.Bind(wx.EVT_SHOW, self.on_show)
+        
+        # Check login state after a delay (in case dashboard logs in during initialization)
+        wx.CallLater(200, self.update_logout_button)
+
+    def on_show(self, event):
+        """Called when the page is shown - update logout button visibility"""
+        if event.IsShown() and not self._updating_logout:
+            # Use CallAfter to ensure dashboard is ready
+            wx.CallAfter(self.update_logout_button)
 
     def on_start_game(self, event):
         parent = self.GetParent()
@@ -158,3 +185,68 @@ class StartPage(wx.Panel):
     def on_user_dashboard(self, event):
         parent = self.GetParent()
         parent.switch_to_dashboard_page()
+    
+    def on_logout(self, event):
+        """Handle logout button click - logout and show login dialog"""
+        parent = self.GetParent()
+        # Access dashboard page to logout
+        if hasattr(parent, 'dashboard_page') and parent.dashboard_page.is_logged_in:
+            # Set flag to prevent on_show from interfering
+            self._updating_logout = True
+            
+            # Logout from dashboard
+            parent.dashboard_page.is_logged_in = False
+            parent.dashboard_page.user_data = None
+            parent.dashboard_page.current_username = None
+            
+            # Hide logout button (but don't layout yet - wait until after dialog)
+            self.logout_card.Hide()
+            
+            # Show login dialog immediately
+            from dashboard import LoginDialog
+            login_dialog = LoginDialog(self, parent.dashboard_page.account_manager)
+            result = login_dialog.ShowModal()
+            
+            # Save user_data before destroying dialog
+            user_data = login_dialog.user_data if hasattr(login_dialog, 'user_data') else None
+            login_dialog.Destroy()
+            
+            # Now update layout after dialog is closed
+            if result == wx.ID_OK and user_data:
+                # Login successful - update dashboard with new user data
+                parent.dashboard_page.user_data = user_data
+                parent.dashboard_page.current_username = user_data["username"]
+                parent.dashboard_page.is_logged_in = True
+                
+                # Recreate dashboard layout with new user data
+                parent.dashboard_page.DestroyChildren()
+                parent.dashboard_page.create_layout()
+                
+                # Update logout button visibility on start page
+                self.update_logout_button()
+            else:
+                # Login cancelled - update layout to reflect hidden logout button
+                self.Layout()
+                self.Refresh()
+            
+            # Clear the flag
+            self._updating_logout = False
+    
+    def update_logout_button(self):
+        """Update logout button visibility based on login state"""
+        try:
+            parent = self.GetParent()
+            if parent and hasattr(parent, 'dashboard_page'):
+                dashboard = parent.dashboard_page
+                if dashboard and hasattr(dashboard, 'is_logged_in') and dashboard.is_logged_in:
+                    self.logout_card.Show()
+                else:
+                    self.logout_card.Hide()
+            else:
+                self.logout_card.Hide()
+            self.Layout()
+            self.Refresh()
+        except Exception as e:
+            # If update fails, hide the button to be safe
+            self.logout_card.Hide()
+            self.Layout()
