@@ -284,115 +284,19 @@ class StatisticsCard(wx.Panel):
         gc.SetBrush(wx.Brush(bg))
         gc.DrawRoundedRectangle(0, 0, width - 4, height - 4, 12)
 
-class AchievementCard(wx.Panel):
-    """Individual achievement card with icon and better display"""
-    def __init__(self, parent, title, description, unlocked=False):
-        super(AchievementCard, self).__init__(parent)
-        import os
-        self.unlocked = unlocked
-        self.title = title
-        self.description = description
-        
-        self.SetMinSize((320, 100))
-        
-        # Create horizontal sizer for icon and text
-        main_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        main_sizer.AddSpacer(10)
-        
-        # Replace the icon panel block with achievement or locked icon
-        # Load images from root directory (parent of Coaching App)
-        script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        achievement_path = os.path.join(script_dir, "achievement.png")
-        locked_path = os.path.join(script_dir, "locked.png")
-        
-        if unlocked and os.path.exists(achievement_path):
-            img = wx.Image(achievement_path, wx.BITMAP_TYPE_ANY)
-            img = img.Scale(48, 48, wx.IMAGE_QUALITY_HIGH)
-            icon = wx.StaticBitmap(self, -1, wx.Bitmap(img))
-            icon.SetBackgroundColour(wx.Colour(76, 175, 80))
-        elif os.path.exists(locked_path):
-            img = wx.Image(locked_path, wx.BITMAP_TYPE_ANY)
-            img = img.Scale(48, 48, wx.IMAGE_QUALITY_HIGH)
-            icon = wx.StaticBitmap(self, -1, wx.Bitmap(img))
-            icon.SetBackgroundColour(wx.Colour(200, 200, 200, 30))
-        else:
-            # Fallback to text if images are not found
-            icon = wx.StaticText(self, label=("★" if unlocked else "●"))
-            icon.SetFont(wx.Font(24, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
-            icon.SetForegroundColour(wx.Colour(255, 215, 0) if unlocked else wx.Colour(180, 180, 180))
-
-        main_sizer.Add(icon, 0, wx.ALIGN_CENTER_VERTICAL | wx.ALL, 8)
-        
-        # Text content
-        text_sizer = wx.BoxSizer(wx.VERTICAL)
-        text_sizer.AddSpacer(5)
-        
-        # Title - using dashboard font style but adjusted size
-        title_text = wx.StaticText(self, label=title, style=wx.ST_NO_AUTORESIZE)
-        title_font = wx.Font(16, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
-        title_text.SetFont(title_font)
-        title_text.Wrap(240)  
-        if unlocked:
-            title_text.SetForegroundColour(wx.Colour(0, 0, 0))
-            title_text.SetBackgroundColour(wx.Colour(76, 175, 80))
-        else:
-            title_text.SetForegroundColour(wx.Colour(100, 100, 100)) 
-            title_text.SetBackgroundColour(wx.Colour(200, 200, 200, 30)) 
-        text_sizer.Add(title_text, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 5)
-        
-        # Description - using dashboard font style but adjusted size
-        desc_text = wx.StaticText(self, label=description, style=wx.ST_NO_AUTORESIZE)
-        desc_font = wx.Font(11, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
-        desc_text.SetFont(desc_font)
-        desc_text.Wrap(240)
-        if unlocked:
-            desc_text.SetForegroundColour(wx.Colour(50, 50, 50))
-            desc_text.SetBackgroundColour(wx.Colour(76, 175, 80))
-        else:
-            desc_text.SetForegroundColour(wx.Colour(120, 120, 120))
-            desc_text.SetBackgroundColour(wx.Colour(200, 200, 200, 30))
-        text_sizer.Add(desc_text, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
-        
-        text_sizer.AddSpacer(5)
-        main_sizer.Add(text_sizer, 1, wx.EXPAND | wx.ALL, 5)
-        main_sizer.AddSpacer(10)
-        
-        self.SetSizer(main_sizer)
-        
-        # Draw border
-        self.Bind(wx.EVT_PAINT, self.OnPaint)
-    
-    def OnPaint(self, event):
-        dc = wx.PaintDC(self)
-        width, height = self.GetSize()
-        
-        if self.unlocked:
-            border_color = wx.Colour(0, 103, 0) 
-            fill_color = wx.Colour(76, 175, 80, 30)  
-        else:
-            border_color = wx.Colour(150, 150, 150)  
-            fill_color = wx.Colour(200, 200, 200, 30)  
-        
-        # Fill background
-        dc.SetPen(wx.TRANSPARENT_PEN)  
-        dc.SetBrush(wx.Brush(fill_color))  
-        dc.DrawRoundedRectangle(2, 2, width - 4, height - 4, 10)
-        
-        # Draw border
-        dc.SetPen(wx.Pen(border_color, 2))  
-        dc.SetBrush(wx.TRANSPARENT_BRUSH)  
-        dc.DrawRoundedRectangle(2, 2, width - 4, height - 4, 10)
-
 class AchievementsCard(wx.Panel):
-    """A custom card for displaying achievements with scrollable list"""
+    """A custom card for displaying achievements with medal images"""
     def __init__(self, parent):
         super(AchievementsCard, self).__init__(parent)
         
-        # Set base colors - matching dashboard style
+        # Set base colors
         self.bg_color = wx.Colour(255, 255, 255)
         self.text_color = wx.Colour(33, 37, 41)
         self.SetBackgroundColour(self.bg_color)
         self.SetMinSize((380, 200))
+        
+        # Load medal images
+        self.medal_images = self.load_medal_images()
         
         # Bind paint event for card styling
         self.Bind(wx.EVT_PAINT, self.OnPaint)
@@ -400,55 +304,188 @@ class AchievementsCard(wx.Panel):
         # Create a vertical sizer for the content
         main_sizer = wx.BoxSizer(wx.VERTICAL)
         
-        # Title: "Achievements" - matching dashboard style
+        # Title: "Achievements"
         title = wx.StaticText(self, label="Achievements")
         title_font = wx.Font(28, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
         title.SetFont(title_font)
         title.SetForegroundColour(self.text_color)
         main_sizer.Add(title, 0, wx.LEFT | wx.TOP, 30)
         
-        # Add minimal spacing
+        # Add minimal spacing (medals moved up more)
         main_sizer.AddSpacer(5)
         
-        # Create scrollable panel for achievements
-        scroll_panel = wx.ScrolledWindow(self, style=wx.VSCROLL)
-        scroll_panel.SetBackgroundColour(self.bg_color)
-        scroll_panel.SetScrollRate(0, 10)
+        # Create medals row with bronze left, gold center, silver right
+        medals_row = wx.BoxSizer(wx.HORIZONTAL)
         
-        # Create sizer for scrollable content
-        scroll_sizer = wx.BoxSizer(wx.VERTICAL)
-        scroll_sizer.AddSpacer(5)
+        # Calculate 30% of panel width for the medal size
+        panel_width = 380  # Approximate panel width
+        target_width = int(panel_width * 0.3)  # 30% of panel width
         
-        # Define achievements with more detailed descriptions
-        # Note: You can replace the unlocked values with actual user_data['achievements'] when available
-        achievements = [
-            ("First Session", "Complete your first rowing session to get started on your rowing journey", True),
-            ("Ten Sessions", "Complete 10 rowing sessions to build consistency and habit", False),
-            ("Perfect Form", "Maintain perfect rowing form for 5 consecutive minutes", False),
-            ("Endurance Master", "Row continuously for 30+ minutes without stopping", True),
-            ("Speed Demon", "Achieve a stroke rate of 35+ strokes per minute", False),
-            ("Week Warrior", "Complete 7 rowing sessions in a single week", False),
-            ("Monthly Milestone", "Complete 20 rowing sessions in a month", False),
-            ("Consistency King", "Row for 5 consecutive days", False)
-        ]
+        # Add bronze medal with text below (to the left)
+        bronze_container = wx.BoxSizer(wx.VERTICAL)
         
-        # Create achievement cards
-        for title_text, description, unlocked in achievements:
-            achievement_card = AchievementCard(scroll_panel, title_text, description, unlocked)
-            scroll_sizer.Add(achievement_card, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
+        bronze_bitmap = self.medal_images.get('bronze')
+        if bronze_bitmap:
+            # Get original image dimensions
+            original_width = bronze_bitmap.GetWidth()
+            original_height = bronze_bitmap.GetHeight()
+            
+            # Calculate scale factor to fit target width while preserving aspect ratio
+            scale_factor = target_width / original_width
+            target_height = int(original_height * scale_factor)
+            
+            # Scale the bronze image
+            scaled_image = bronze_bitmap.ConvertToImage()
+            scaled_image = scaled_image.Scale(target_width, target_height, wx.IMAGE_QUALITY_HIGH)
+            bronze_scaled_bitmap = scaled_image.ConvertToBitmap()
+            
+            # Create the bronze medal display
+            bronze_medal_ctrl = wx.StaticBitmap(self, -1, bronze_scaled_bitmap)
+            bronze_container.Add(bronze_medal_ctrl, 0, wx.ALIGN_CENTER)
+        else:
+            # Fallback for bronze
+            bronze_placeholder = wx.StaticText(self, label="BRONZE")
+            bronze_placeholder_font = wx.Font(24, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
+            bronze_placeholder.SetFont(bronze_placeholder_font)
+            bronze_placeholder.SetForegroundColour(self.text_color)
+            bronze_container.Add(bronze_placeholder, 0, wx.ALIGN_CENTER)
         
-        scroll_sizer.AddSpacer(5)
-        scroll_panel.SetSizer(scroll_sizer)
+        # Add text below bronze medal
+        bronze_text = wx.StaticText(self, label="First 2km")
+        bronze_text_font = wx.Font(16, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
+        bronze_text.SetFont(bronze_text_font)
+        bronze_text.SetForegroundColour(self.text_color)
+        bronze_container.Add(bronze_text, 0, wx.ALIGN_CENTER | wx.TOP, 25)  # Same spacing as gold text
         
-        # Set virtual size for scrolling
-        scroll_panel.SetVirtualSize(scroll_sizer.GetMinSize())
-        scroll_panel.EnableScrolling(True, True)
+        medals_row.Add(bronze_container, 0, wx.ALIGN_CENTER)
         
-        # Add scroll panel to main sizer with proper sizing
-        main_sizer.Add(scroll_panel, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 20)
-        main_sizer.AddSpacer(10)
+        # Add spacing between medals (tripled)
+        medals_row.AddSpacer(60)
+        
+        # Add gold medal with text below (centered)
+        gold_container = wx.BoxSizer(wx.VERTICAL)
+        
+        gold_bitmap = self.medal_images.get('gold')
+        if gold_bitmap:
+            # Get original image dimensions
+            original_width = gold_bitmap.GetWidth()
+            original_height = gold_bitmap.GetHeight()
+            
+            # Calculate scale factor to fit target width while preserving aspect ratio
+            scale_factor = target_width / original_width
+            target_height = int(original_height * scale_factor)
+            
+            # Scale the gold image
+            scaled_image = gold_bitmap.ConvertToImage()
+            scaled_image = scaled_image.Scale(target_width, target_height, wx.IMAGE_QUALITY_HIGH)
+            gold_scaled_bitmap = scaled_image.ConvertToBitmap()
+            
+            # Create the gold medal display
+            gold_medal_ctrl = wx.StaticBitmap(self, -1, gold_scaled_bitmap)
+            gold_container.Add(gold_medal_ctrl, 0, wx.ALIGN_CENTER)
+        else:
+            # Fallback for gold
+            gold_placeholder = wx.StaticText(self, label="GOLD")
+            gold_placeholder_font = wx.Font(24, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
+            gold_placeholder.SetFont(gold_placeholder_font)
+            gold_placeholder.SetForegroundColour(self.text_color)
+            gold_container.Add(gold_placeholder, 0, wx.ALIGN_CENTER)
+        
+        # Add text below gold medal
+        gold_text = wx.StaticText(self, label="First 30min session")
+        gold_text_font = wx.Font(16, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)  # Slightly larger than half size
+        gold_text.SetFont(gold_text_font)
+        gold_text.SetForegroundColour(self.text_color)
+        gold_container.Add(gold_text, 0, wx.ALIGN_CENTER | wx.TOP, 25)  # More spacing to move text further down
+        
+        medals_row.Add(gold_container, 0, wx.ALIGN_CENTER)
+        
+        # Add spacing between medals (tripled)
+        medals_row.AddSpacer(60)
+        
+        # Add silver medal with text below (to the right)
+        silver_container = wx.BoxSizer(wx.VERTICAL)
+        
+        silver_bitmap = self.medal_images.get('silver')
+        if silver_bitmap:
+            # Get original image dimensions
+            original_width = silver_bitmap.GetWidth()
+            original_height = silver_bitmap.GetHeight()
+            
+            # Calculate scale factor to fit target width while preserving aspect ratio
+            scale_factor = target_width / original_width
+            target_height = int(original_height * scale_factor)
+            
+            # Scale the silver image
+            scaled_image = silver_bitmap.ConvertToImage()
+            scaled_image = scaled_image.Scale(target_width, target_height, wx.IMAGE_QUALITY_HIGH)
+            silver_scaled_bitmap = scaled_image.ConvertToBitmap()
+            
+            # Create the silver medal display
+            silver_medal_ctrl = wx.StaticBitmap(self, -1, silver_scaled_bitmap)
+            silver_container.Add(silver_medal_ctrl, 0, wx.ALIGN_CENTER)
+        else:
+            # Fallback for silver
+            silver_placeholder = wx.StaticText(self, label="SILVER")
+            silver_placeholder_font = wx.Font(24, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
+            silver_placeholder.SetFont(silver_placeholder_font)
+            silver_placeholder.SetForegroundColour(self.text_color)
+            silver_container.Add(silver_placeholder, 0, wx.ALIGN_CENTER)
+        
+        # Add text below silver medal
+        silver_text = wx.StaticText(self, label="First 3km")
+        silver_text_font = wx.Font(16, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
+        silver_text.SetFont(silver_text_font)
+        silver_text.SetForegroundColour(self.text_color)
+        silver_container.Add(silver_text, 0, wx.ALIGN_CENTER | wx.TOP, 25)  # Same spacing as gold text
+        
+        medals_row.Add(silver_container, 0, wx.ALIGN_CENTER)
+        
+        # Center the medals row (this keeps gold centered, silver to the right)
+        center_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        center_sizer.AddStretchSpacer()
+        center_sizer.Add(medals_row, 0, wx.ALIGN_CENTER)
+        center_sizer.AddStretchSpacer()
+        
+        main_sizer.Add(center_sizer, 1, wx.EXPAND)
+        main_sizer.AddSpacer(20)
         
         self.SetSizer(main_sizer)
+        
+    def load_medal_images(self):
+        """Load medal images directly from PNG files without any modifications"""
+        import os
+        
+        medal_images = {}
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        # Define medal image file names
+        medal_files = {
+            'gold': 'gold_medal.png',
+            'silver': 'silver_medal.png', 
+            'bronze': 'bronze_medal.png'
+        }
+        
+        for medal_type, filename in medal_files.items():
+            try:
+                # Try to load from the same directory as the script
+                image_path = os.path.join(script_dir, filename)
+                if os.path.exists(image_path):
+                    # Load PNG directly with wxPython - no modifications
+                    wx_img = wx.Image(image_path)
+                    if wx_img.IsOk():
+                        medal_images[medal_type] = wx_img.ConvertToBitmap()
+                    else:
+                        print(f"Failed to load medal image: {image_path}")
+                        medal_images[medal_type] = None
+                else:
+                    print(f"Medal image not found: {image_path}")
+                    medal_images[medal_type] = None
+            except Exception as e:
+                print(f"Error loading medal image {filename}: {e}")
+                medal_images[medal_type] = None
+        
+        return medal_images
         
     def OnPaint(self, event):
         """Paint the card background with shadow and border"""
