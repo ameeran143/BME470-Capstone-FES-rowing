@@ -48,7 +48,7 @@ class SharedStats:
         self.handle_position = []  # Front potentiometer (ai21) - handle position sensor
         self.raw_seat_pos = []  # Back potentiometer (ai22) - raw collected seat position at each time point
         self.converted_seat_position = []  # converted seat position at each time point (0-100 scale)
-        self.seat_position_mm = []  # Seat position in mm (for ANC playback and percentile-based progress)
+        self.seat_position_mm = []  # Seat position in mm (for CSV playback and percentile-based progress)
         self.L_foot_force = []  # Left foot force (ai16)
         self.R_foot_force = []  # Right foot force (ai18)
         self.switch_press = []  # [REMOVED - no switch sensor in new mapping]
@@ -88,18 +88,18 @@ class SharedStats:
             print("   NI-DAQmx is not supported on macOS")
             print("   Use Windows/Linux for hardware testing")
         
-        # ANC playback mode (replay data from rowing01.ANC)
+        # CSV playback mode (replay data from sensor CSV files)
         self.anc_playback_mode = False
         self.anc_data = []  # list of tuples: (L_foot, R_foot, handle_force, handle_pos, raw_seat_pos)
         self.anc_index = 0
-        self.anc_extra = []  # list of tuples: (col2, col4) or other auxiliary columns
+        self.anc_extra = []  # list of tuples: (time, ...) or other auxiliary columns
         self.anc_playback_start_time = None  # Track playback start time
-        self.anc_source_type = "anc"  # anc | csv | other
-        self.anc_sampling_rate = 2000  # Hz
-        self.anc_index_step = 200  # Default downsampling factor for playback (approx 10 Hz display)
+        self.anc_source_type = "csv_voltage"  # csv_voltage | other
+        self.anc_sampling_rate = 10  # Hz (default, will be estimated from CSV)
+        self.anc_index_step = 1  # Default downsampling factor for playback
         self.anc_power_series = []
         
-        # Try auto-load ANC data on macOS if file exists
+        # Try auto-load CSV data on macOS if file exists
         try:
             project_root = os.path.dirname(os.path.dirname(__file__))
             csv_path = os.path.join(project_root, "Test_Recordings", "hikaru", "sensor_data.csv")
@@ -108,14 +108,8 @@ class SharedStats:
                 # Enable playback mode by default on mac if hardware is disabled
                 if self.is_mac:
                     self.anc_playback_mode = True
-            else:
-                anc_path = os.path.join(project_root, "rowing01.ANC")
-                if os.path.exists(anc_path):
-                    self.load_anc_file(anc_path)
-                    if self.is_mac:
-                        self.anc_playback_mode = True
         except Exception as e:
-            print(f"ANC init load failed: {e}")
+            print(f"CSV init load failed: {e}")
     
     def convert_raw_to_scale(self, raw_pos):
         if raw_pos:
@@ -140,77 +134,6 @@ class SharedStats:
         with open(self.stats_file_path, 'w', newline='') as file:
             writer = csv.writer(file)
             writer.writerow(["Time Elapsed (min)", "Stroke Rate", "Average Power", "Score", "Misses", "Handle Force (ai20)", "Handle Position (ai21)", "Raw Seat Position (ai22)", "Converted Seat Position", "Left Foot Force (ai16)", "Right Foot Force (ai18)"])
-
-    def load_anc_file(self, file_path):
-        """Load ANC file and extract required columns.
-        Uses columns 3,5,6,7,8 (1-based) → indices 2,4,5,6,7 (0-based):
-        L_foot_force, R_foot_force, handle_force, handle_position, raw_seat_position
-        Also generates and opens a plot image of the entire dataset.
-        """
-        self.anc_data = []
-        self.anc_extra = []
-        self.anc_power_series = []
-        self.anc_power_series = []
-        self.anc_source_type = "anc"
-        self.anc_sampling_rate = 2000
-        self.anc_index_step = max(1, int(round(self.anc_sampling_rate / 10)))
-        try:
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    # Split on any whitespace
-                    parts = line.split()
-                    # Require at least 8 columns (0..7)
-                    if len(parts) < 8:
-                        continue
-                    # Attempt numeric conversion; skip header/non-numeric lines
-                    try:
-                        # Extract selected columns
-                        # Also capture columns 2 and 4 for plotting
-                        print("this is the length of the parts", len(parts))
-                        col2 = float(parts[1])
-                        l_foot = float(parts[2])
-                        r_foot = float(parts[4])
-                        handle_force = float(parts[5])
-                        handle_pos = float(parts[6])
-                        raw_seat = float(parts[7])
-                        self.anc_data.append((l_foot, r_foot, handle_force, handle_pos, raw_seat))
-                        col4 = float(parts[3])
-                        self.anc_extra.append((col2, col4))
-                    except ValueError:
-                        continue
-            self.anc_index = 0
-            print(f"Loaded ANC samples: {len(self.anc_data)} from {file_path}")
-            
-            # Remove first 5 seconds of data (2000 Hz * 5 sec = 10000 samples)
-            if len(self.anc_data) > 10000:
-                self.anc_data = self.anc_data[10000:]
-                self.anc_extra = self.anc_extra[10000:]
-                print(f"Trimmed first 5 seconds: {len(self.anc_data)} samples remaining")
-            
-            # Remove last 5 seconds of data (2000 Hz * 5 sec = 10000 samples)
-            if len(self.anc_data) > 10000:
-                self.anc_data = self.anc_data[:-10000]
-                self.anc_extra = self.anc_extra[:-10000]
-                print(f"Trimmed last 5 seconds: {len(self.anc_data)} samples remaining")
-            
-            if self.anc_data:
-                # Apply Butterworth low-pass filter (10 Hz) to seat position and remap
-                self._process_seat_position()
-                
-                # Pre-populate calibration bounds from data for conversion if reasonable
-                raw_values = [row[4] for row in self.anc_data]
-                try:
-                    self.front_max_pos = max(raw_values)
-                    self.back_max_pos = min(raw_values)
-                except Exception:
-                    pass
-                # Generate and open plot
-                self.plot_anc_data(file_path)
-        except Exception as e:
-            print(f"Failed to load ANC file: {e}")
 
     def load_sensor_csv(self, file_path):
         """Load sensor playback data from a CSV file with columns:
@@ -289,8 +212,8 @@ class SharedStats:
             handle_data = [row[3] for row in self.anc_data]
             seat_data = [row[4] for row in self.anc_data]
             
-            # Sampling frequency (default to 2000 Hz if unknown)
-            fs = self.anc_sampling_rate if self.anc_sampling_rate and self.anc_sampling_rate > 0 else 2000
+            # Sampling frequency (default to 10 Hz if unknown)
+            fs = self.anc_sampling_rate if self.anc_sampling_rate and self.anc_sampling_rate > 0 else 10
             cutoff = 10.0  # Hz
             nyquist = fs / 2
 
@@ -327,19 +250,10 @@ class SharedStats:
             min_seat_raw = min(filtered_seat)
             max_seat_raw = max(filtered_seat)
 
-            if self.anc_source_type == "anc":
-                # Inputs are mV → convert to mm and shift to start at 0
-                mv_to_mm_factor = 2032.0 / 10000.0
-                remapped_seat = [(x * mv_to_mm_factor) for x in filtered_seat]
-                remapped_handle = [(x * mv_to_mm_factor) for x in filtered_handle]
-                remapped_force = [x - min_force_raw for x in filtered_force]
-                handle_min_shift = min(remapped_handle)
-                seat_min_shift = min(remapped_seat)
-                remapped_handle = [x - handle_min_shift for x in remapped_handle]
-                remapped_seat = [x - seat_min_shift for x in remapped_seat]
-            elif self.anc_source_type == "csv_voltage":
+            if self.anc_source_type == "csv_voltage":
                 # Inputs are 0-10 V → convert to mm and shift to start at 0
-                volts_to_mm_factor = 2032.0 / 10.0
+                volts_to_mm_factor = 2032.0 / 10.0 # this is the conversion factor for the seat position sensor
+                #because the potentiometer range is 0-10V and maps to 0-2032, we need to use the conversion factor to convert the voltage to mm
                 remapped_seat = [(x * volts_to_mm_factor) for x in filtered_seat]
                 remapped_handle = [(x * volts_to_mm_factor) for x in filtered_handle]
                 remapped_force = [x - min_force_raw for x in filtered_force]
@@ -348,7 +262,7 @@ class SharedStats:
                 remapped_handle = [x - handle_min_shift for x in remapped_handle]
                 remapped_seat = [x - seat_min_shift for x in remapped_seat]
             else:
-                # For CSV or unknown sources, rescale to 0-2032 mm based on observed range
+                # For unknown sources, rescale to 0-2032 mm based on observed range
                 seat_rng = max_seat_raw - min_seat_raw
                 handle_rng = max_handle_raw - min_handle_raw
                 force_rng = max_force_raw - min_force_raw
@@ -399,7 +313,6 @@ class SharedStats:
                 prev_handle = handle_val
             
             source_units_map = {
-                "anc": "mV",
                 "csv_voltage": "V",
             }
             source_units = source_units_map.get(self.anc_source_type, "raw units")
@@ -413,7 +326,7 @@ class SharedStats:
             print(f"  Seat output range: {min(remapped_seat):.2f}-{max(remapped_seat):.2f} mm")
             print(f"  Handle input range: {min_handle_raw:.2f}-{max_handle_raw:.2f} {source_units}")
             print(f"  Handle output range: {min(remapped_handle):.2f}-{max(remapped_handle):.2f} mm")
-            if self.anc_source_type in ("anc", "csv_voltage"):
+            if self.anc_source_type == "csv_voltage":
                 print(f"  Force final range (shifted): 0-{max(remapped_force):.2f} {force_units}")
                 print(f"  Seat final range (shifted): 0-{max(remapped_seat):.2f} mm")
                 print(f"  Handle final range (shifted): 0-{max(remapped_handle):.2f} mm")
@@ -426,6 +339,10 @@ class SharedStats:
     @staticmethod
     def _convert_handle_force_voltage(voltage):
         """Convert handle force sensor voltage to force (N) using calibration."""
+
+        #this conversoin is done by the following equation
+        #recorded voltage / (sensitivity*excitation voltage ) * rated capacity mass (kg) * gravity (m/s^2)
+        #note that sensitivity is 2.0 mv/V and excitation voltage is 5.0 V, rated capacity mass is 250 kg and gravity is 9.81 m/s^2
         try:
             return (voltage / (2.0 * 5.0)) * 250.0 * 9.81
         except Exception:
@@ -438,7 +355,7 @@ class SharedStats:
         try:
             from PIL import Image, ImageDraw, ImageFont
             width, height = 1400, 900
-            margin_left, margin_right, margin_top, margin_bottom = 90, 30, 70, 60
+            margin_left, margin_right, margin_top, margin_bottom = 110, 30, 70, 60
             panel_gap = 20
             num_channels = 5
             total_gap = panel_gap * (num_channels - 1)
@@ -466,7 +383,7 @@ class SharedStats:
                     colors.append(extra_colors[idx % len(extra_colors)])
 
             series_main = list(zip(*self.anc_data))  # [(L),(R),(HF),(HP),(Seat)]
-            main_labels = ["L Foot", "R Foot", "Handle Force", "Handle Pos", "Seat Pos"]
+            main_labels = ["L Foot", "R Foot", "Handle Force (N)", "Handle Pos (mm)", "Seat Pos (mm)"]
             main_colors = [
                 (220, 20, 60), (65, 105, 225), (34, 139, 34), (255, 140, 0), (128, 0, 128)
             ]
@@ -483,7 +400,7 @@ class SharedStats:
             n = len(self.anc_data)
 
             # Title
-            title = f"ANC Plot: {os.path.basename(src_path)}"
+            title = f"CSV Plot: {os.path.basename(src_path)}"
             draw.text((margin_left, 20), title, fill=(0, 0, 0))
 
             # Draw each channel in its own panel
@@ -503,7 +420,7 @@ class SharedStats:
                 # Panel border
                 draw.rectangle([origin_x, origin_y, origin_x + plot_w, origin_y + panel_h], outline=(200, 200, 200), width=1)
                 # Channel label and range annotations
-                draw.text((origin_x - 80, origin_y + 5), label, fill=(0, 0, 0))
+                draw.text((origin_x - 100, origin_y + 5), label, fill=(0, 0, 0))
                 draw.text((origin_x + plot_w + 6, origin_y), f"max {smax:.2f}", fill=(80, 80, 80))
                 draw.text((origin_x + plot_w + 6, origin_y + panel_h - 16), f"min {smin:.2f}", fill=(80, 80, 80))
                 # Y-axis ticks with numeric labels (5 ticks including min/max)
@@ -516,8 +433,8 @@ class SharedStats:
                     draw.line([origin_x, y, origin_x + plot_w, y], fill=(235, 235, 235), width=1)
                     # Tick marker
                     draw.line([origin_x - 6, y, origin_x, y], fill=(120, 120, 120), width=1)
-                    # Label
-                    draw.text((origin_x - 70, max(origin_y, min(origin_y + panel_h - 12, y - 6))), f"{val:.2f}", fill=(60, 60, 60))
+                    # Label - shifted further left to avoid overlap, positioned higher
+                    draw.text((origin_x - 90, max(origin_y, min(origin_y + panel_h - 12, y ))), f"{val:.2f}", fill=(60, 60, 60))
                 # Polyline
                 prev = None
                 for i, v in enumerate(data):
@@ -545,9 +462,10 @@ class SharedStats:
             # Save next to Training_Data
             out_dir = os.path.join(os.path.dirname(__file__), "Training_Data")
             os.makedirs(out_dir, exist_ok=True)
-            out_path = os.path.join(out_dir, "rowing01_plot.png")
+            base_name = os.path.splitext(os.path.basename(src_path))[0]
+            out_path = os.path.join(out_dir, f"{base_name}_plot.png")
             img.save(out_path)
-            print(f"Saved ANC plot to: {out_path}")
+            print(f"Saved CSV plot to: {out_path}")
             # Open on macOS
             if self.is_mac:
                 try:
@@ -555,13 +473,13 @@ class SharedStats:
                 except Exception:
                     pass
         except Exception as e:
-            print(f"Plotting ANC failed: {e}")
+            print(f"Plotting CSV failed: {e}")
 
     def update_stats(self):
         # update time
         self.time_elapsed = int(time.time() - self.time_start) / 60
 
-        # ANC playback mode (replay from file at 2000 Hz, downsample to 10 Hz)
+        # CSV playback mode (replay from CSV file)
         if self.anc_playback_mode and self.anc_data:
             try:
                 # Initialize playback start time
@@ -585,7 +503,7 @@ class SharedStats:
                 self.R_foot_force.append(r_foot)
                 self.handle_force.append(handle_force)
                 self.handle_position.append(handle_pos)
-                # For ANC playback, raw_seat is already in mm after filtering
+                # For CSV playback, raw_seat is already in mm after filtering
                 self.raw_seat_pos.append(raw_seat_mm)  # Store as raw_seat_pos for compatibility
                 self.seat_position_mm.append(raw_seat_mm)  # Store explicitly in mm
                 
@@ -612,7 +530,7 @@ class SharedStats:
                 self.hardware_connected = False
                 return
             except Exception as e:
-                print(f"ANC playback error: {e}")
+                print(f"CSV playback error: {e}")
                 # Fallback to simulation
                 self.anc_playback_mode = False
 
@@ -657,7 +575,7 @@ class SharedStats:
                 self.hardware_connected = False
                 # Fall through to simulation mode
         
-        # Simulation mode (always used on macOS, fallback for Windows/Linux, unless ANC playback)
+        # Simulation mode (always used on macOS, fallback for Windows/Linux, unless CSV playback)
         if not hasattr(self, 'temp_time'):
             self.temp_time = []
         self.temp_time.append(time.time())
@@ -1058,7 +976,7 @@ class GamePage(wx.Panel):
             if self.shared_state.switch_press:
                 print('switch press', self.shared_state.switch_press[-1])
         
-        # Only simulate data if hardware is not connected and not in ANC playback mode
+        # Only simulate data if hardware is not connected and not in CSV playback mode
         if not self.shared_state.hardware_connected and not getattr(self.shared_state, 'anc_playback_mode', False):
             # Simulate seat position for FES indicator (no visual seat anymore)
             if not self.shared_state.raw_seat_pos:
