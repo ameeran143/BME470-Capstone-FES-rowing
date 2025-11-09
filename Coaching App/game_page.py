@@ -193,6 +193,19 @@ class SharedStats:
                     self.anc_sampling_rate = 1.0 / avg_interval
             self.anc_index_step = max(1, int(round(self.anc_sampling_rate / 10.0))) if self.anc_sampling_rate > 0 else 1
 
+            # Trim first and last 5 seconds of data
+            if self.anc_data and self.anc_sampling_rate > 0:
+                samples_to_trim = int(5.0 * self.anc_sampling_rate)
+                if len(self.anc_data) > samples_to_trim * 2:
+                    # Trim first 5 seconds
+                    self.anc_data = self.anc_data[samples_to_trim:]
+                    self.anc_extra = self.anc_extra[samples_to_trim:]
+                    print(f"Trimmed first 5 seconds: {len(self.anc_data)} samples remaining")
+                    # Trim last 5 seconds
+                    self.anc_data = self.anc_data[:-samples_to_trim]
+                    self.anc_extra = self.anc_extra[:-samples_to_trim]
+                    print(f"Trimmed last 5 seconds: {len(self.anc_data)} samples remaining")
+
             if self.anc_data:
                 self._process_seat_position()
                 self.plot_anc_data(file_path)
