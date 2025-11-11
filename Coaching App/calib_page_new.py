@@ -100,7 +100,7 @@ class CalibPage(wx.Panel):
 
         # compress image
         self.img1_ctrl = None
-        img_path = os.path.join(os.path.dirname(__file__), "compress.jpg")
+        img_path = os.path.join(os.path.dirname(__file__), "assets", "images", "compress.jpg")
         if os.path.exists(img_path):
             img = Image.open(img_path).resize((360, 200))
             wximg = wx.Image(img.size[0], img.size[1])
@@ -133,7 +133,7 @@ class CalibPage(wx.Panel):
         self.instr_sizer.Add(self.instr2_label, 0, wx.ALIGN_CENTER | wx.ALL, 12)
 
         self.img2_ctrl = None
-        img2_path = os.path.join(os.path.dirname(__file__), "extend.jpg")
+        img2_path = os.path.join(os.path.dirname(__file__), "assets", "images", "extend.jpg")
         if os.path.exists(img2_path):
             img2 = Image.open(img2_path).resize((360, 200))
             wximg2 = wx.Image(img2.size[0], img2.size[1])

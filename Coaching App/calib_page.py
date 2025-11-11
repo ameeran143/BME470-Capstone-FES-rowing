@@ -62,8 +62,8 @@ class CalibPage(wx.Panel):
         sizer.Add(instruction1, 0, wx.ALIGN_CENTER | wx.ALL, 15)
 
         # image 1
-        image_path = os.path.join(os.path.dirname(__file__), "compress.jpg")
-        # Use relative path to find compress.jpg in the same directory
+        image_path = os.path.join(os.path.dirname(__file__), "assets", "images", "compress.jpg")
+        # Use relative path to find compress.jpg in assets/images directory
         img1 = Image.open(image_path)
         img1 = img1.resize((300, 160))
         img1_wx = wx.Image(img1.size[0], img1.size[1])
@@ -78,8 +78,8 @@ class CalibPage(wx.Panel):
         sizer.Add(instruction2, 0, wx.ALIGN_CENTER | wx.ALL, 15)
 
         # image 2
-        image_path = os.path.join(os.path.dirname(__file__), "extend.jpg")
-        # Use relative path to find extend.jpg in the same directory
+        image_path = os.path.join(os.path.dirname(__file__), "assets", "images", "extend.jpg")
+        # Use relative path to find extend.jpg in assets/images directory
         img2 = Image.open(image_path)
         img2 = img2.resize((300, 160))
         img2_wx = wx.Image(img2.size[0], img2.size[1])
