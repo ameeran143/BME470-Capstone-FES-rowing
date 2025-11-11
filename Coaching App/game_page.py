@@ -62,10 +62,9 @@ class SharedStats:
         self.msg = False
 
         # for calibration
-        self.front_max_pos = 520  # fake data equal 100
-        self.back_max_pos = 43  # fake data equal 0
+        self.front_max_pos = 520  # default calibration value equal 100
+        self.back_max_pos = 43  # default calibration value equal 0
         self.fes_active_pos = self.front_max_pos - 96.5 # constant (different for each user)
-        self.seat_direction = 0  # fake data
         self.converted_fes_pos = 100 - (self.fes_active_pos - self.front_max_pos) / (self.back_max_pos - self.front_max_pos) * 100
         self.userID = None
         self.age = 0
@@ -76,8 +75,8 @@ class SharedStats:
         # File to store stats
         self.stats_file_path = None
         
-        # Hardware mode: True = use sensors, False = use simulation
-        self.hardware_mode = False  # Set to False for simulation mode
+        # Hardware mode: True = use sensors, False = use CSV playback
+        self.hardware_mode = False  # Set to True for hardware sensors, False for CSV playback
         self.hardware_connected = False
         self.hardware_task = None  # Persistent task for sensor readings
         
@@ -125,6 +124,10 @@ class SharedStats:
             csv_path = os.path.join(project_root, "Test_Recordings", "hikaru", "sensor_data.csv")
             if os.path.exists(csv_path):
                 self.load_sensor_csv(csv_path)
+                # Enable CSV playback mode if hardware mode is disabled
+                if not self.hardware_mode:
+                    self.anc_playback_mode = True
+                    print("✅ CSV playback mode enabled")
         except Exception as e:
             print(f"CSV init load failed: {e}")
     
@@ -496,12 +499,17 @@ class SharedStats:
             out_path = os.path.join(out_dir, f"{base_name}_plot.png")
             img.save(out_path)
             print(f"Saved CSV plot to: {out_path}")
-            # Open on macOS
-            if self.is_mac:
-                try:
+            # Try to open the plot (cross-platform)
+            try:
+                import platform
+                if platform.system() == 'Darwin':
                     os.system(f'open "{out_path}"')
-                except Exception:
-                    pass
+                elif platform.system() == 'Windows':
+                    os.startfile(out_path)
+                else:
+                    os.system(f'xdg-open "{out_path}"')
+            except Exception:
+                pass
         except Exception as e:
             print(f"Plotting CSV failed: {e}")
 
@@ -520,49 +528,50 @@ class SharedStats:
                 if self.anc_index >= len(self.anc_data):
                     # End of data, disable playback
                     self.anc_playback_mode = False
+                    print("📊 CSV playback completed")
                     return
-                
-                # Read next sample (already downsampled by index increment)
-                current_idx = self.anc_index
-                l_foot, r_foot, handle_force, handle_pos, raw_seat_mm = self.anc_data[current_idx]
-                step = max(1, int(self.anc_index_step)) if hasattr(self, "anc_index_step") else 200
-                self.anc_index = min(self.anc_index + step, len(self.anc_data))
-                
-                # Append sensor data
-                self.L_foot_force.append(l_foot)
-                self.R_foot_force.append(r_foot)
-                self.handle_force.append(handle_force)
-                self.handle_position.append(handle_pos)
-                # For CSV playback, raw_seat is already in mm after filtering
-                self.raw_seat_pos.append(raw_seat_mm)  # Store as raw_seat_pos for compatibility
-                self.seat_position_mm.append(raw_seat_mm)  # Store explicitly in mm
-                
-                # Time base for power computation
-                if not hasattr(self, 'temp_time'):
-                    self.temp_time = []
-                self.temp_time.append(time.time())
-                
-                # Convert to 0-100 scale for compatibility
-                if self.raw_seat_pos:
-                    if self.raw_seat_pos[-1] <= self.back_max_pos:
-                        self.raw_seat_pos[-1] = self.back_max_pos
-                    elif self.raw_seat_pos[-1] >= self.front_max_pos:
-                        self.raw_seat_pos[-1] = self.front_max_pos
-                    self.converted_seat_position.append(self.convert_raw_to_scale(self.raw_seat_pos[-1]))
-                
-                if self.anc_power_series and current_idx < len(self.anc_power_series):
-                    power_val = self.anc_power_series[current_idx]
-                    self.temp_power.append(power_val)
-                    self.avg_power.append(sum(self.temp_power)/len(self.temp_power))
-                elif len(self.handle_force) > 1 and len(self.handle_position) > 1 and len(self.temp_time) > 1:
-                    self.temp_power.append(((self.handle_force[-1]+self.handle_force[-2])/2)*abs(self.handle_position[-1]-self.handle_position[-2])/(self.temp_time[-1]-self.temp_time[-2]))
-                    self.avg_power.append(sum(self.temp_power)/len(self.temp_power))
-                self.hardware_connected = False
-                return
+                else:
+                    # Read next sample (already downsampled by index increment)
+                    current_idx = self.anc_index
+                    l_foot, r_foot, handle_force, handle_pos, raw_seat_mm = self.anc_data[current_idx]
+                    step = max(1, int(self.anc_index_step)) if hasattr(self, "anc_index_step") else 200
+                    self.anc_index = min(self.anc_index + step, len(self.anc_data))
+                    
+                    # Append sensor data
+                    self.L_foot_force.append(l_foot)
+                    self.R_foot_force.append(r_foot)
+                    self.handle_force.append(handle_force)
+                    self.handle_position.append(handle_pos)
+                    # For CSV playback, raw_seat is already in mm after filtering
+                    self.raw_seat_pos.append(raw_seat_mm)  # Store as raw_seat_pos for compatibility
+                    self.seat_position_mm.append(raw_seat_mm)  # Store explicitly in mm
+                    
+                    # Time base for power computation
+                    if not hasattr(self, 'temp_time'):
+                        self.temp_time = []
+                    self.temp_time.append(time.time())
+                    
+                    # Convert to 0-100 scale for compatibility
+                    if self.raw_seat_pos:
+                        if self.raw_seat_pos[-1] <= self.back_max_pos:
+                            self.raw_seat_pos[-1] = self.back_max_pos
+                        elif self.raw_seat_pos[-1] >= self.front_max_pos:
+                            self.raw_seat_pos[-1] = self.front_max_pos
+                        self.converted_seat_position.append(self.convert_raw_to_scale(self.raw_seat_pos[-1]))
+                    
+                    if self.anc_power_series and current_idx < len(self.anc_power_series):
+                        power_val = self.anc_power_series[current_idx]
+                        self.temp_power.append(power_val)
+                        self.avg_power.append(sum(self.temp_power)/len(self.temp_power))
+                    elif len(self.handle_force) > 1 and len(self.handle_position) > 1 and len(self.temp_time) > 1:
+                        self.temp_power.append(((self.handle_force[-1]+self.handle_force[-2])/2)*abs(self.handle_position[-1]-self.handle_position[-2])/(self.temp_time[-1]-self.temp_time[-2]))
+                        self.avg_power.append(sum(self.temp_power)/len(self.temp_power))
+                    self.hardware_connected = False
+                    return
             except Exception as e:
                 print(f"CSV playback error: {e}")
-                # Fallback to simulation
                 self.anc_playback_mode = False
+                return
 
         # Hardware sensor data collection
         if self.hardware_mode:
@@ -606,7 +615,12 @@ class SharedStats:
                 self.hardware_connected = False
                 return  # Do not fall back to simulation
         
-        # Simulation mode (only when hardware_mode is False)
+        # If neither CSV playback nor hardware mode is active, no data collection
+        # This ensures only real sensors or CSV playback are used
+        if not self.hardware_mode and not self.anc_playback_mode:
+            return
+        
+        # Initialize temp_time if needed
         if not hasattr(self, 'temp_time'):
             self.temp_time = []
         self.temp_time.append(time.time())
@@ -1018,89 +1032,7 @@ class GamePage(wx.Panel):
             if self.shared_state.switch_press:
                 print('switch press', self.shared_state.switch_press[-1])
         
-        # Only simulate data if hardware_mode is False and not in CSV playback mode
-        if not self.shared_state.hardware_mode and not getattr(self.shared_state, 'anc_playback_mode', False):
-            # Simulate seat position for FES indicator (no visual seat anymore)
-            if not self.shared_state.raw_seat_pos:
-                self.shared_state.raw_seat_pos.append(self.shared_state.back_max_pos)
-            else:
-                self.shared_state.converted_seat_position.append(self.shared_state.convert_raw_to_scale(self.shared_state.raw_seat_pos[-1]))
-                next_pos = self.shared_state.converted_seat_position[-1] + self.shared_state.seat_direction 
-                self.shared_state.raw_seat_pos.append(self.shared_state.convert_scale_to_raw(next_pos)) 
-                
-                # Simulation logic
-                if next_pos >= 100:
-                    self.shared_state.seat_direction = -3
-                elif next_pos <= 0:
-                    self.shared_state.seat_direction = 3
-                if self.shared_state.is_pressed:
-                    self.shared_state.switch_press.append(5)
-                else:
-                    self.shared_state.switch_press.append(0)
-                
-                self.shared_state.converted_seat_position.append(next_pos)
-            
-            # Generate realistic fake power data (only in simulation mode)
-            import random
-            if not hasattr(self.shared_state, 'temp_time'):
-                self.shared_state.temp_time = []
-            self.shared_state.temp_time.append(time.time())
-            
-            # Add some initial fake data if lists are empty
-            if not self.shared_state.avg_power:
-                # Start with some baseline values
-                initial_power = random.uniform(85, 125)
-                self.shared_state.temp_power.append(initial_power)
-                self.shared_state.avg_power.append(initial_power)
-                self.shared_state.stroke_rate.append(random.uniform(24, 26))
-            
-            # Simulate realistic power output (varies between 50-200W with rowing motion)
-            if self.shared_state.converted_seat_position:
-                current_pos = self.shared_state.converted_seat_position[-1]
-                
-                # Power varies with rowing phase - higher during drive phase (moving toward front)
-                if len(self.shared_state.converted_seat_position) >= 2:
-                    prev_pos = self.shared_state.converted_seat_position[-2]
-                    is_driving = current_pos > prev_pos  # Moving toward front (drive phase)
-                    
-                    if is_driving and current_pos > 50:  # High power during drive phase
-                        base_power = random.uniform(120, 200)
-                    elif is_driving:  # Moderate power during early drive
-                        base_power = random.uniform(80, 150)
-                    else:  # Lower power during recovery phase
-                        base_power = random.uniform(30, 80)
-                    
-                    # Add some random variation
-                    power_variation = random.uniform(-20, 20)
-                    simulated_power = max(0, base_power + power_variation)
-                    
-                    self.shared_state.temp_power.append(simulated_power)
-                    self.shared_state.avg_power.append(sum(self.shared_state.temp_power) / len(self.shared_state.temp_power))
-                    
-                    # Simulate stroke rate (strokes per minute) - typical rowing is 20-35 SPM
-                    if not self.shared_state.stroke_rate:
-                        simulated_stroke_rate = random.uniform(22, 28)  # Start with moderate pace
-                    else:
-                        # Vary stroke rate slightly around current rate
-                        current_rate = self.shared_state.stroke_rate[-1]
-                        rate_change = random.uniform(-2, 2)
-                        simulated_stroke_rate = max(18, min(35, current_rate + rate_change))
-                    
-                    self.shared_state.stroke_rate.append(simulated_stroke_rate)
-            
-            # Generate fake accuracy data (simulate some successful and missed FES activations)
-            if len(self.shared_state.converted_seat_position) > 10:  # Wait a bit before starting accuracy simulation
-                # Randomly simulate button presses at appropriate times
-                if random.random() < 0.05:  # 5% chance per update to simulate a button press
-                    current_pos = self.shared_state.raw_seat_pos[-1] if self.shared_state.raw_seat_pos else 0
-                    
-                    # Simulate success/failure based on timing accuracy (80% success rate)
-                    if random.random() < 0.8:  # 80% success rate
-                        self.shared_state.score += 1
-                    else:
-                        self.shared_state.misses += 1
-        
-        # Calculate realistic distance (for both hardware and simulation mode)
+        # Calculate distance (for hardware and CSV playback modes)
         self.shared_state.calculate_distance()
         
         self.stats_panel.update_stats()
