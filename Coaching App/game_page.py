@@ -76,17 +76,37 @@ class SharedStats:
         # File to store stats
         self.stats_file_path = None
         
-        # Hardware testing - Auto-detect OS
-        import platform
-        self.is_mac = platform.system() == 'Darwin'
-        self.hardware_mode = not self.is_mac  # Disable hardware mode on Mac
+        # Hardware mode: True = use sensors, False = use simulation
+        self.hardware_mode = False  # Set to False for simulation mode
         self.hardware_connected = False
-        self.last_hardware_check = 0
+        self.hardware_task = None  # Persistent task for sensor readings
         
-        if self.is_mac:
-            print("⚠️  macOS detected: Running in simulation mode only")
-            print("   NI-DAQmx is not supported on macOS")
-            print("   Use Windows/Linux for hardware testing")
+        # Initialize hardware task if in hardware mode
+        if self.hardware_mode:
+            try:
+                self.hardware_task = nidaqmx.Task()
+                # Configure channels with RSE terminal configuration and 0-10V range (matching hardware_test_safe.py)
+                self.hardware_task.ai_channels.add_ai_voltage_chan("Dev2/ai16",
+                                                                   terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
+                                                                   min_val=0.0, max_val=10.0)   # Left Foot Force
+                self.hardware_task.ai_channels.add_ai_voltage_chan("Dev2/ai18",
+                                                                   terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
+                                                                   min_val=0.0, max_val=10.0)   # Right Foot Force
+                self.hardware_task.ai_channels.add_ai_voltage_chan("Dev2/ai20",
+                                                                   terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
+                                                                   min_val=0.0, max_val=10.0)   # Handle Force
+                self.hardware_task.ai_channels.add_ai_voltage_chan("Dev2/ai21",
+                                                                   terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
+                                                                   min_val=0.0, max_val=10.0)   # Handle Position
+                self.hardware_task.ai_channels.add_ai_voltage_chan("Dev2/ai22",
+                                                                   terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
+                                                                   min_val=0.0, max_val=10.0)   # Seat Position
+                print("✅ Hardware task configured with RSE (Referenced Single-Ended) terminal configuration")
+                print("   Voltage range: 0.0V to 10.0V (matching hardware_test_safe.py configuration)")
+            except Exception as e:
+                print(f"❌ Failed to initialize hardware task: {e}")
+                print("   Sensor mode will not be available")
+                self.hardware_task = None
         
         # CSV playback mode (replay data from sensor CSV files)
         self.anc_playback_mode = False
@@ -99,15 +119,12 @@ class SharedStats:
         self.anc_index_step = 1  # Default downsampling factor for playback
         self.anc_power_series = []
         
-        # Try auto-load CSV data on macOS if file exists
+        # Try auto-load CSV data if file exists
         try:
             project_root = os.path.dirname(os.path.dirname(__file__))
             csv_path = os.path.join(project_root, "Test_Recordings", "hikaru", "sensor_data.csv")
             if os.path.exists(csv_path):
                 self.load_sensor_csv(csv_path)
-                # Enable playback mode by default on mac if hardware is disabled
-                if self.is_mac:
-                    self.anc_playback_mode = True
         except Exception as e:
             print(f"CSV init load failed: {e}")
     
@@ -547,35 +564,36 @@ class SharedStats:
                 # Fallback to simulation
                 self.anc_playback_mode = False
 
-        # Hardware sensor data collection (Windows/Linux only)
-        if not self.is_mac and self.hardware_mode:
+        # Hardware sensor data collection
+        if self.hardware_mode:
+            # Check if hardware task was successfully initialized
+            if self.hardware_task is None:
+                print("❌ Hardware mode enabled but task initialization failed")
+                print("   Sensor mode is not available")
+                self.hardware_connected = False
+                return  # Do not fall back to simulation
+            
             try:
-                with nidaqmx.Task() as task:
-                    # Add channels individually with explicit voltage range
-                    task.ai_channels.add_ai_voltage_chan("Dev2/ai16", min_val=-10.0, max_val=10.0)  # Left foot
-                    task.ai_channels.add_ai_voltage_chan("Dev2/ai18", min_val=-10.0, max_val=10.0)  # Right foot
-                    task.ai_channels.add_ai_voltage_chan("Dev2/ai20", min_val=-10.0, max_val=10.0)  # Handle force
-                    task.ai_channels.add_ai_voltage_chan("Dev2/ai21", min_val=-10.0, max_val=10.0)  # Handle position
-                    task.ai_channels.add_ai_voltage_chan("Dev2/ai22", min_val=-10.0, max_val=10.0)  # Seat position
-                    data = task.read(number_of_samples_per_channel=1)
-                    
-                    # Extract single values from nested list structure
-                    left_foot = data[0][0] if isinstance(data[0], list) else data[0]
-                    right_foot = data[1][0] if isinstance(data[1], list) else data[1]
-                    handle_force = data[2][0] if isinstance(data[2], list) else data[2]
-                    handle_position = data[3][0] if isinstance(data[3], list) else data[3]
-                    seat_position = data[4][0] if isinstance(data[4], list) else data[4]
-                    
-                    self.pos = seat_position * 100  # Back potentiometer (ai22) - seat position
-                    
-                    self.raw_seat_pos.append(self.pos)  # Back potentiometer (ai22)
-                    self.handle_position.append(handle_position)  # Front potentiometer (ai21)
-                    self.handle_force.append(self._convert_handle_force_voltage(handle_force))  # Handle force sensor (ai20)
-                    self.L_foot_force.append(left_foot)  # Left foot force (ai16)
-                    self.R_foot_force.append(right_foot)  # Right foot force (ai18)
-                    # Note: switch_press removed - no switch sensor in new mapping
-                    self.temp_time.append(time.time())
-                    self.hardware_connected = True
+                # Use persistent task (created in __init__) - matches hardware_test_safe.py approach
+                data = self.hardware_task.read(number_of_samples_per_channel=1)
+                
+                # Extract single values from nested list structure
+                left_foot = data[0][0] if isinstance(data[0], list) else data[0]
+                right_foot = data[1][0] if isinstance(data[1], list) else data[1]
+                handle_force = data[2][0] if isinstance(data[2], list) else data[2]
+                handle_position = data[3][0] if isinstance(data[3], list) else data[3]
+                seat_position = data[4][0] if isinstance(data[4], list) else data[4]
+                
+                self.pos = seat_position * 100  # Back potentiometer (ai22) - seat position
+                
+                self.raw_seat_pos.append(self.pos)  # Back potentiometer (ai22)
+                self.handle_position.append(handle_position)  # Front potentiometer (ai21)
+                self.handle_force.append(self._convert_handle_force_voltage(handle_force))  # Handle force sensor (ai20)
+                self.L_foot_force.append(left_foot)  # Left foot force (ai16)
+                self.R_foot_force.append(right_foot)  # Right foot force (ai18)
+                # Note: switch_press removed - no switch sensor in new mapping
+                self.temp_time.append(time.time())
+                self.hardware_connected = True
 
                 # update power (need to verify)
                 if len(self.raw_seat_pos) > 1 and hasattr(self, 'temp_time'):
@@ -584,11 +602,11 @@ class SharedStats:
                     
                 return  # Exit early if hardware read was successful
             except Exception as e:
-                print(f"Hardware error: {e}")
+                print(f"❌ Error reading from sensors: {e}")
                 self.hardware_connected = False
-                # Fall through to simulation mode
+                return  # Do not fall back to simulation
         
-        # Simulation mode (always used on macOS, fallback for Windows/Linux, unless CSV playback)
+        # Simulation mode (only when hardware_mode is False)
         if not hasattr(self, 'temp_time'):
             self.temp_time = []
         self.temp_time.append(time.time())
@@ -671,6 +689,17 @@ class SharedStats:
     
     def stop_writing_stats(self):
         self.stats_file_path = None
+    
+    def cleanup_hardware(self):
+        """Clean up hardware task on app exit"""
+        if self.hardware_task is not None:
+            try:
+                self.hardware_task.close()
+                print("✅ Hardware task closed successfully")
+            except Exception as e:
+                print(f"⚠️  Error closing hardware task: {e}")
+            finally:
+                self.hardware_task = None
 
 # ------------------------------------------------------------------------------------------------------------
 
@@ -989,8 +1018,8 @@ class GamePage(wx.Panel):
             if self.shared_state.switch_press:
                 print('switch press', self.shared_state.switch_press[-1])
         
-        # Only simulate data if hardware is not connected and not in CSV playback mode
-        if not self.shared_state.hardware_connected and not getattr(self.shared_state, 'anc_playback_mode', False):
+        # Only simulate data if hardware_mode is False and not in CSV playback mode
+        if not self.shared_state.hardware_mode and not getattr(self.shared_state, 'anc_playback_mode', False):
             # Simulate seat position for FES indicator (no visual seat anymore)
             if not self.shared_state.raw_seat_pos:
                 self.shared_state.raw_seat_pos.append(self.shared_state.back_max_pos)

@@ -21,4 +21,3 @@ class CustomButton(wx.Button):
         if enable:
             self.SetBackgroundColour(self.default_background_colour)
         self.Refresh()
-

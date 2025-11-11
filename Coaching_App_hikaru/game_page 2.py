@@ -25,6 +25,7 @@ import nidaqmx
 import csv
 import math
 from PIL import Image, ImageDraw
+from scipy import signal
 
 #Correct_Sound = pygame.mixer.Sound("Correct_Sound.wav")
 #Wrong_Sound = pygame.mixer.Sound("Wrong_Sound.wav")
@@ -46,7 +47,8 @@ class SharedStats:
         self.handle_force = []  # Handle force (ai20)
         self.handle_position = []  # Front potentiometer (ai21) - handle position sensor
         self.raw_seat_pos = []  # Back potentiometer (ai22) - raw collected seat position at each time point
-        self.converted_seat_position = []  # converted seat position at each time point
+        self.converted_seat_position = []  # converted seat position at each time point (0-100 scale)
+        self.seat_position_mm = []  # Seat position in mm (for CSV playback and percentile-based progress)
         self.L_foot_force = []  # Left foot force (ai16)
         self.R_foot_force = []  # Right foot force (ai18)
         self.switch_press = []  # [REMOVED - no switch sensor in new mapping]
@@ -81,13 +83,33 @@ class SharedStats:
         self.hardware_connected = False
         self.last_hardware_check = 0
         
-        # Persistent task for sensor reading (like hardware_test_safe.py)
-        self.sensor_task = None
-        
         if self.is_mac:
             print("⚠️  macOS detected: Running in simulation mode only")
             print("   NI-DAQmx is not supported on macOS")
             print("   Use Windows/Linux for hardware testing")
+        
+        # CSV playback mode (replay data from sensor CSV files)
+        self.anc_playback_mode = False
+        self.anc_data = []  # list of tuples: (L_foot, R_foot, handle_force, handle_pos, raw_seat_pos)
+        self.anc_index = 0
+        self.anc_extra = []  # list of tuples: (time, ...) or other auxiliary columns
+        self.anc_playback_start_time = None  # Track playback start time
+        self.anc_source_type = "csv_voltage"  # csv_voltage | other
+        self.anc_sampling_rate = 10  # Hz (default, will be estimated from CSV)
+        self.anc_index_step = 1  # Default downsampling factor for playback
+        self.anc_power_series = []
+        
+        # Try auto-load CSV data on macOS if file exists
+        try:
+            project_root = os.path.dirname(os.path.dirname(__file__))
+            csv_path = os.path.join(project_root, "Test_Recordings", "hikaru", "sensor_data.csv")
+            if os.path.exists(csv_path):
+                self.load_sensor_csv(csv_path)
+                # Enable playback mode by default on mac if hardware is disabled
+                if self.is_mac:
+                    self.anc_playback_mode = True
+        except Exception as e:
+            print(f"CSV init load failed: {e}")
     
     def convert_raw_to_scale(self, raw_pos):
         if raw_pos:
@@ -113,56 +135,447 @@ class SharedStats:
             writer = csv.writer(file)
             writer.writerow(["Time Elapsed (min)", "Stroke Rate", "Average Power", "Score", "Misses", "Handle Force (ai20)", "Handle Position (ai21)", "Raw Seat Position (ai22)", "Converted Seat Position", "Left Foot Force (ai16)", "Right Foot Force (ai18)"])
 
+    def load_sensor_csv(self, file_path):
+        """Load sensor playback data from a CSV file with columns:
+        Time (s), Left Foot, Right Foot, Handle Force, Handle Position, Seat Position.
+        """
+        self.anc_data = []
+        self.anc_extra = []
+        self.anc_index = 0
+        self.anc_playback_start_time = None
+        self.anc_source_type = "csv_voltage"
+        self.anc_sampling_rate = 10  # Start with a safe default
+        self.anc_index_step = 1
+        intervals = []
+        last_time = None
+        try:
+            with open(file_path, 'r', newline='') as f:
+                reader = csv.reader(f)
+                headers = next(reader, None)
+                col_map = None
+                if headers:
+                    col_map = {name.strip().lower(): idx for idx, name in enumerate(headers)}
+                for row in reader:
+                    if not row or all(cell.strip() == "" for cell in row):
+                        continue
+                    try:
+                        # Attempt to map columns by header name if available
+                        if col_map and len(headers) >= 6:
+                            time_idx = col_map.get("time (s)", 0)
+                            left_idx = col_map.get("left foot (ai16)", 1)
+                            right_idx = col_map.get("right foot (ai18)", 2)
+                            handle_force_idx = col_map.get("handle force (ai20)", 3)
+                            handle_pos_idx = col_map.get("handle position (ai21)", 4)
+                            seat_idx = col_map.get("seat position (ai22)", 5)
+                        else:
+                            time_idx, left_idx, right_idx, handle_force_idx, handle_pos_idx, seat_idx = range(6)
+                        time_val = float(row[time_idx])
+                        l_foot = float(row[left_idx])
+                        r_foot = float(row[right_idx])
+                        handle_force = float(row[handle_force_idx])
+                        handle_pos = float(row[handle_pos_idx])
+                        seat_pos = float(row[seat_idx])
+                    except (ValueError, IndexError):
+                        continue
+
+                    handle_force = self._convert_handle_force_voltage(handle_force)
+                    self.anc_data.append((l_foot, r_foot, handle_force, handle_pos, seat_pos))
+                    self.anc_extra.append((time_val,))
+                    if last_time is not None:
+                        dt = time_val - last_time
+                        if dt > 0:
+                            intervals.append(dt)
+                    last_time = time_val
+
+            if intervals:
+                avg_interval = sum(intervals) / len(intervals)
+                if avg_interval > 0:
+                    self.anc_sampling_rate = 1.0 / avg_interval
+            self.anc_index_step = max(1, int(round(self.anc_sampling_rate / 10.0))) if self.anc_sampling_rate > 0 else 1
+
+            # Trim first and last 5 seconds of data
+            if self.anc_data and self.anc_sampling_rate > 0:
+                samples_to_trim = int(5.0 * self.anc_sampling_rate)
+                if len(self.anc_data) > samples_to_trim * 2:
+                    # Trim first 5 seconds
+                    self.anc_data = self.anc_data[samples_to_trim:]
+                    self.anc_extra = self.anc_extra[samples_to_trim:]
+                    print(f"Trimmed first 5 seconds: {len(self.anc_data)} samples remaining")
+                    # Trim last 5 seconds
+                    self.anc_data = self.anc_data[:-samples_to_trim]
+                    self.anc_extra = self.anc_extra[:-samples_to_trim]
+                    print(f"Trimmed last 5 seconds: {len(self.anc_data)} samples remaining")
+
+            if self.anc_data:
+                self._process_seat_position()
+                self.plot_anc_data(file_path)
+                print(f"Loaded CSV playback samples: {len(self.anc_data)} from {file_path}")
+                print(f"Estimated sampling rate: {self.anc_sampling_rate:.2f} Hz; playback step: {self.anc_index_step}")
+        except Exception as e:
+            print(f"Failed to load sensor CSV: {e}")
+
+    def _process_seat_position(self):
+        """Apply Butterworth low-pass filter and remap seat position to millimeters."""
+        if not self.anc_data or len(self.anc_data) == 0:
+            return
+        
+        try:
+            # Extract columns
+            handle_force_data = [row[2] for row in self.anc_data]
+            handle_data = [row[3] for row in self.anc_data]
+            seat_data = [row[4] for row in self.anc_data]
+            
+            # Sampling frequency (default to 10 Hz if unknown)
+            fs = self.anc_sampling_rate if self.anc_sampling_rate and self.anc_sampling_rate > 0 else 10
+            cutoff = 10.0  # Hz
+            nyquist = fs / 2
+
+            def _filter_channel(series):
+                if not series:
+                    return series
+                if nyquist <= 0:
+                    return series
+                local_cutoff = cutoff
+                if local_cutoff >= nyquist:
+                    local_cutoff = max(0.1, nyquist * 0.9)
+                normal_cutoff = local_cutoff / nyquist
+                if normal_cutoff >= 1.0 or normal_cutoff <= 0.0:
+                    return series
+                b, a = signal.butter(4, normal_cutoff, btype='low')
+                return signal.filtfilt(b, a, series)
+
+            filtered_force = _filter_channel(handle_force_data)
+            filtered_handle = _filter_channel(handle_data)
+            filtered_seat = _filter_channel(seat_data)
+
+            # Ensure array-like results are plain lists
+            if hasattr(filtered_force, "tolist"):
+                filtered_force = filtered_force.tolist()
+            if hasattr(filtered_handle, "tolist"):
+                filtered_handle = filtered_handle.tolist()
+            if hasattr(filtered_seat, "tolist"):
+                filtered_seat = filtered_seat.tolist()
+
+            min_force_raw = min(filtered_force)
+            max_force_raw = max(filtered_force)
+            min_handle_raw = min(filtered_handle)
+            max_handle_raw = max(filtered_handle)
+            min_seat_raw = min(filtered_seat)
+            max_seat_raw = max(filtered_seat)
+
+            if self.anc_source_type == "csv_voltage":
+                # Inputs are 0-10 V → convert to mm and shift to start at 0
+                volts_to_mm_factor = 2032.0 / 10.0 # this is the conversion factor for the seat position sensor
+                #because the potentiometer range is 0-10V and maps to 0-2032, we need to use the conversion factor to convert the voltage to mm
+                remapped_seat = [(x * volts_to_mm_factor) for x in filtered_seat]
+                remapped_handle = [(x * volts_to_mm_factor) for x in filtered_handle]
+                remapped_force = [x - min_force_raw for x in filtered_force]
+                handle_min_shift = min(remapped_handle)
+                seat_min_shift = min(remapped_seat)
+                remapped_handle = [x - handle_min_shift for x in remapped_handle]
+                remapped_seat = [x - seat_min_shift for x in remapped_seat]
+            else:
+                # For unknown sources, rescale to 0-2032 mm based on observed range
+                seat_rng = max_seat_raw - min_seat_raw
+                handle_rng = max_handle_raw - min_handle_raw
+                force_rng = max_force_raw - min_force_raw
+                if seat_rng <= 0:
+                    remapped_seat = [0.0 for _ in filtered_seat]
+                else:
+                    remapped_seat = [((x - min_seat_raw) / seat_rng) * 2032.0 for x in filtered_seat]
+                if handle_rng <= 0:
+                    remapped_handle = [0.0 for _ in filtered_handle]
+                else:
+                    remapped_handle = [((x - min_handle_raw) / handle_rng) * 2032.0 for x in filtered_handle]
+                if force_rng <= 0:
+                    remapped_force = [0.0 for _ in filtered_force]
+                else:
+                    remapped_force = [x - min_force_raw for x in filtered_force]
+
+            # Ensure force baseline is zero
+            if remapped_force:
+                force_min = min(remapped_force)
+                remapped_force = [x - force_min for x in remapped_force]
+            
+            # Calculate 10th and 90th percentiles for color threshold
+            import numpy as np
+            seat_array = np.array(remapped_seat)
+            self.seat_position_p10 = np.percentile(seat_array, 15)  #the optimal timing for anterior position is not defined yet, so set to 15th percentile for now 
+            self.seat_position_p90 = max(seat_array) - 140  #set it to 140 mm seat position from the front, max(seat_array) would be based on the calibrated values in practice
+            
+            # Update the anc_data with filtered and remapped channels
+            self.anc_data = [
+                (row[0], row[1], new_force, new_handle, new_seat)
+                for row, new_force, new_handle, new_seat in zip(self.anc_data, remapped_force, remapped_handle, remapped_seat)
+            ]
+
+            # Pre-compute instantaneous power using the same formula as runtime
+            self.anc_power_series = []
+            prev_force = None
+            prev_handle = None
+            dt = 1.0 / self.anc_sampling_rate if self.anc_sampling_rate and self.anc_sampling_rate > 0 else None
+            for idx, (_l, _r, force_val, handle_val, _seat_val) in enumerate(self.anc_data):
+                if dt is None or idx == 0 or prev_force is None or prev_handle is None or dt <= 0:
+                    self.anc_power_series.append(0.0)
+                else:
+                    avg_force = (force_val + prev_force) / 2.0 #N
+                    delta_handle = abs(handle_val - prev_handle) #mm 
+                    power_val = avg_force * delta_handle / dt / 1000 if dt else 0.0 #W
+                    self.anc_power_series.append(power_val)
+                prev_force = force_val
+                prev_handle = handle_val
+            
+            source_units_map = {
+                "csv_voltage": "V",
+            }
+            source_units = source_units_map.get(self.anc_source_type, "raw units")
+            force_units = "raw units"
+            if self.anc_source_type == "csv_voltage":
+                force_units = "N"
+            print(f"Applied {cutoff:.1f} Hz Butterworth filter and remapped seat position:")
+            print(f"  Force input range: {min_force_raw:.2f}-{max_force_raw:.2f} {force_units}")
+            print(f"  Force output range: {min(remapped_force):.2f}-{max(remapped_force):.2f} {force_units} (offset)")
+            print(f"  Seat input range: {min_seat_raw:.2f}-{max_seat_raw:.2f} {source_units}")
+            print(f"  Seat output range: {min(remapped_seat):.2f}-{max(remapped_seat):.2f} mm")
+            print(f"  Handle input range: {min_handle_raw:.2f}-{max_handle_raw:.2f} {source_units}")
+            print(f"  Handle output range: {min(remapped_handle):.2f}-{max(remapped_handle):.2f} mm")
+            if self.anc_source_type == "csv_voltage":
+                print(f"  Force final range (shifted): 0-{max(remapped_force):.2f} {force_units}")
+                print(f"  Seat final range (shifted): 0-{max(remapped_seat):.2f} mm")
+                print(f"  Handle final range (shifted): 0-{max(remapped_handle):.2f} mm")
+            print(f"  10th percentile: {self.seat_position_p10:.2f} mm")
+            print(f"  90th percentile: {self.seat_position_p90:.2f} mm")
+            
+        except Exception as e:
+            print(f"Failed to process seat position: {e}")
+
+    @staticmethod
+    def _convert_handle_force_voltage(voltage):
+        """Convert handle force sensor voltage to force (N) using calibration."""
+
+        #this conversoin is done by the following equation
+        #recorded voltage / (sensitivity*excitation voltage ) * rated capacity mass (kg) * gravity (m/s^2)
+        #note that sensitivity is 2.0 mv/V and excitation voltage is 5.0 V, rated capacity mass is 250 kg and gravity is 9.81 m/s^2
+        try:
+            return (voltage / (2.0 * 5.0)) * 250.0 * 9.81
+        except Exception:
+            return voltage
+
+    def plot_anc_data(self, src_path):
+        """Create a PNG plot with separate channel panels and open it (macOS)."""
+        if not self.anc_data:
+            return
+        try:
+            from PIL import Image, ImageDraw, ImageFont
+            width, height = 1400, 900
+            margin_left, margin_right, margin_top, margin_bottom = 110, 30, 70, 60
+            panel_gap = 20
+            num_channels = 5
+            total_gap = panel_gap * (num_channels - 1)
+            available_h = height - margin_top - margin_bottom - total_gap
+            panel_h = max(80, available_h // num_channels)
+            plot_w = width - margin_left - margin_right
+            img = Image.new('RGB', (width, height), (255, 255, 255))
+            draw = ImageDraw.Draw(img)
+
+            # Prepare series and metadata
+            series = []
+            labels = []
+            colors = []
+
+            if self.anc_extra:
+                series_extra = list(zip(*self.anc_extra))
+                extra_colors = [(0, 0, 0), (128, 128, 128), (169, 169, 169)]
+                for idx, extra in enumerate(series_extra):
+                    if self.anc_source_type == "csv_voltage" and idx == 0:
+                        label = "Time (s)"
+                    else:
+                        label = f"Extra {idx + 1}"
+                    series.append(extra)
+                    labels.append(label)
+                    colors.append(extra_colors[idx % len(extra_colors)])
+
+            series_main = list(zip(*self.anc_data))  # [(L),(R),(HF),(HP),(Seat)]
+            main_labels = ["L Foot", "R Foot", "Handle Force (N)", "Handle Pos (mm)", "Seat Pos (mm)"]
+            main_colors = [
+                (220, 20, 60), (65, 105, 225), (34, 139, 34), (255, 140, 0), (128, 0, 128)
+            ]
+            for idx, data in enumerate(series_main):
+                label = main_labels[idx] if idx < len(main_labels) else f"Channel {idx+1}"
+                series.append(data)
+                labels.append(label)
+                colors.append(main_colors[idx % len(main_colors)])
+
+            if self.anc_power_series:
+                series.append(self.anc_power_series)
+                labels.append("Power (W)")
+                colors.append((0, 100, 0))
+            n = len(self.anc_data)
+
+            # Title
+            title = f"CSV Plot: {os.path.basename(src_path)}"
+            draw.text((margin_left, 20), title, fill=(0, 0, 0))
+
+            # Draw each channel in its own panel
+            num_channels = len(series)
+            total_gap = panel_gap * (num_channels - 1)
+            available_h = height - margin_top - margin_bottom - total_gap
+            panel_h = max(80, available_h // max(1, num_channels))
+            for ch in range(num_channels):
+                data = series[ch]
+                color = colors[ch]
+                label = labels[ch]
+                smin = min(data)
+                smax = max(data)
+                rng = (smax - smin) if (smax > smin) else 1.0
+                origin_x = margin_left
+                origin_y = margin_top + ch * (panel_h + panel_gap)
+                # Panel border
+                draw.rectangle([origin_x, origin_y, origin_x + plot_w, origin_y + panel_h], outline=(200, 200, 200), width=1)
+                # Channel label and range annotations
+                draw.text((origin_x - 100, origin_y + 5), label, fill=(0, 0, 0))
+                draw.text((origin_x + plot_w + 6, origin_y), f"max {smax:.2f}", fill=(80, 80, 80))
+                draw.text((origin_x + plot_w + 6, origin_y + panel_h - 16), f"min {smin:.2f}", fill=(80, 80, 80))
+                # Y-axis ticks with numeric labels (5 ticks including min/max)
+                tick_n = 5
+                for t in range(tick_n):
+                    frac = t / (tick_n - 1) if tick_n > 1 else 0
+                    val = smax - frac * rng
+                    y = origin_y + int(frac * (panel_h - 2))
+                    # Grid line
+                    draw.line([origin_x, y, origin_x + plot_w, y], fill=(235, 235, 235), width=1)
+                    # Tick marker
+                    draw.line([origin_x - 6, y, origin_x, y], fill=(120, 120, 120), width=1)
+                    # Label - shifted further left to avoid overlap, positioned higher
+                    draw.text((origin_x - 90, max(origin_y, min(origin_y + panel_h - 12, y ))), f"{val:.2f}", fill=(60, 60, 60))
+                # Polyline
+                prev = None
+                for i, v in enumerate(data):
+                    x = origin_x + int(i / max(1, n - 1) * plot_w)
+                    y_norm = (v - smin) / rng
+                    y = origin_y + panel_h - 1 - int(y_norm * (panel_h - 2))
+                    if prev is not None:
+                        draw.line([prev, (x, y)], fill=color, width=2)
+                    prev = (x, y)
+                # Zero/reference line if 0 in range
+                if smin < 0 < smax:
+                    zero_y = origin_y + panel_h - 1 - int((0 - smin) / rng * (panel_h - 2))
+                    draw.line([origin_x, zero_y, origin_x + plot_w, zero_y], fill=(220, 220, 220), width=1)
+
+            # Shared X-axis ticks (sample index)
+            tick_count = 10
+            for t in range(tick_count + 1):
+                frac = t / tick_count
+                x = margin_left + int(frac * plot_w)
+                y0 = margin_top + num_channels * (panel_h + panel_gap) - panel_gap
+                draw.line([x, y0 - 4, x, y0], fill=(160, 160, 160))
+                idx = int(frac * (n - 1)) if n > 0 else 0
+                draw.text((x - 10, y0 + 6), str(idx), fill=(0, 0, 0))
+
+            # Save next to Training_Data
+            out_dir = os.path.join(os.path.dirname(__file__), "Training_Data")
+            os.makedirs(out_dir, exist_ok=True)
+            base_name = os.path.splitext(os.path.basename(src_path))[0]
+            out_path = os.path.join(out_dir, f"{base_name}_plot.png")
+            img.save(out_path)
+            print(f"Saved CSV plot to: {out_path}")
+            # Open on macOS
+            if self.is_mac:
+                try:
+                    os.system(f'open "{out_path}"')
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f"Plotting CSV failed: {e}")
+
     def update_stats(self):
         # update time
         self.time_elapsed = int(time.time() - self.time_start) / 60
 
+        # CSV playback mode (replay from CSV file)
+        if self.anc_playback_mode and self.anc_data:
+            try:
+                # Initialize playback start time
+                if self.anc_playback_start_time is None:
+                    self.anc_playback_start_time = time.time()
+                
+                # Downsample: skip samples to simulate real-time playback
+                if self.anc_index >= len(self.anc_data):
+                    # End of data, disable playback
+                    self.anc_playback_mode = False
+                    return
+                
+                # Read next sample (already downsampled by index increment)
+                current_idx = self.anc_index
+                l_foot, r_foot, handle_force, handle_pos, raw_seat_mm = self.anc_data[current_idx]
+                step = max(1, int(self.anc_index_step)) if hasattr(self, "anc_index_step") else 200
+                self.anc_index = min(self.anc_index + step, len(self.anc_data))
+                
+                # Append sensor data
+                self.L_foot_force.append(l_foot)
+                self.R_foot_force.append(r_foot)
+                self.handle_force.append(handle_force)
+                self.handle_position.append(handle_pos)
+                # For CSV playback, raw_seat is already in mm after filtering
+                self.raw_seat_pos.append(raw_seat_mm)  # Store as raw_seat_pos for compatibility
+                self.seat_position_mm.append(raw_seat_mm)  # Store explicitly in mm
+                
+                # Time base for power computation
+                if not hasattr(self, 'temp_time'):
+                    self.temp_time = []
+                self.temp_time.append(time.time())
+                
+                # Convert to 0-100 scale for compatibility
+                if self.raw_seat_pos:
+                    if self.raw_seat_pos[-1] <= self.back_max_pos:
+                        self.raw_seat_pos[-1] = self.back_max_pos
+                    elif self.raw_seat_pos[-1] >= self.front_max_pos:
+                        self.raw_seat_pos[-1] = self.front_max_pos
+                    self.converted_seat_position.append(self.convert_raw_to_scale(self.raw_seat_pos[-1]))
+                
+                if self.anc_power_series and current_idx < len(self.anc_power_series):
+                    power_val = self.anc_power_series[current_idx]
+                    self.temp_power.append(power_val)
+                    self.avg_power.append(sum(self.temp_power)/len(self.temp_power))
+                elif len(self.handle_force) > 1 and len(self.handle_position) > 1 and len(self.temp_time) > 1:
+                    self.temp_power.append(((self.handle_force[-1]+self.handle_force[-2])/2)*abs(self.handle_position[-1]-self.handle_position[-2])/(self.temp_time[-1]-self.temp_time[-2]))
+                    self.avg_power.append(sum(self.temp_power)/len(self.temp_power))
+                self.hardware_connected = False
+                return
+            except Exception as e:
+                print(f"CSV playback error: {e}")
+                # Fallback to simulation
+                self.anc_playback_mode = False
+
         # Hardware sensor data collection (Windows/Linux only)
         if not self.is_mac and self.hardware_mode:
             try:
-                # Create persistent task if it doesn't exist (like hardware_test_safe.py)
-                if self.sensor_task is None:
-                    self.sensor_task = nidaqmx.Task()
-                    # Configure channels with explicit terminal configuration (RSE - Referenced Single-Ended)
-                    # This matches hardware_test_safe.py configuration for single-ended sensors
-                    # RSE uses AI GND as reference, which is standard for potentiometers and load cells
-                    # Voltage range: 0.0V to 10.0V (matching Cortex configuration)
-                    self.sensor_task.ai_channels.add_ai_voltage_chan("Dev2/ai16", 
-                                                                     terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
-                                                                     min_val=0.0, max_val=10.0)   # Left Foot Force
-                    self.sensor_task.ai_channels.add_ai_voltage_chan("Dev2/ai18",
-                                                                     terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
-                                                                     min_val=0.0, max_val=10.0)   # Right Foot Force
-                    self.sensor_task.ai_channels.add_ai_voltage_chan("Dev2/ai20",
-                                                                     terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
-                                                                     min_val=0.0, max_val=10.0)   # Handle Force
-                    self.sensor_task.ai_channels.add_ai_voltage_chan("Dev2/ai21",
-                                                                     terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
-                                                                     min_val=0.0, max_val=10.0)   # Handle Position
-                    self.sensor_task.ai_channels.add_ai_voltage_chan("Dev2/ai22",
-                                                                     terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
-                                                                     min_val=0.0, max_val=10.0)   # Seat Position (0-10V as in Cortex)
-                
-                # Read data using the persistent task
-                data = self.sensor_task.read(number_of_samples_per_channel=1)
-                
-                # Extract single values from nested list structure
-                left_foot = data[0][0] if isinstance(data[0], list) else data[0]
-                right_foot = data[1][0] if isinstance(data[1], list) else data[1]
-                handle_force = data[2][0] if isinstance(data[2], list) else data[2]
-                handle_position = data[3][0] if isinstance(data[3], list) else data[3]
-                seat_position = data[4][0] if isinstance(data[4], list) else data[4]
-                
-                self.pos = seat_position * 100  # Back potentiometer (ai22) - seat position
-                
-                self.raw_seat_pos.append(self.pos)  # Back potentiometer (ai22)
-                self.handle_position.append(handle_position)  # Front potentiometer (ai21)
-                self.handle_force.append(handle_force)  # Handle force sensor (ai20)
-                self.L_foot_force.append(left_foot)  # Left foot force (ai16)
-                self.R_foot_force.append(right_foot)  # Right foot force (ai18)
-                # Note: switch_press removed - no switch sensor in new mapping
-                self.temp_time.append(time.time())
-                self.hardware_connected = True
+                with nidaqmx.Task() as task:
+                    # Add channels individually with explicit voltage range
+                    task.ai_channels.add_ai_voltage_chan("Dev2/ai16", min_val=-10.0, max_val=10.0)  # Left foot
+                    task.ai_channels.add_ai_voltage_chan("Dev2/ai18", min_val=-10.0, max_val=10.0)  # Right foot
+                    task.ai_channels.add_ai_voltage_chan("Dev2/ai20", min_val=-10.0, max_val=10.0)  # Handle force
+                    task.ai_channels.add_ai_voltage_chan("Dev2/ai21", min_val=-10.0, max_val=10.0)  # Handle position
+                    task.ai_channels.add_ai_voltage_chan("Dev2/ai22", min_val=-10.0, max_val=10.0)  # Seat position
+                    data = task.read(number_of_samples_per_channel=1)
+                    
+                    # Extract single values from nested list structure
+                    left_foot = data[0][0] if isinstance(data[0], list) else data[0]
+                    right_foot = data[1][0] if isinstance(data[1], list) else data[1]
+                    handle_force = data[2][0] if isinstance(data[2], list) else data[2]
+                    handle_position = data[3][0] if isinstance(data[3], list) else data[3]
+                    seat_position = data[4][0] if isinstance(data[4], list) else data[4]
+                    
+                    self.pos = seat_position * 100  # Back potentiometer (ai22) - seat position
+                    
+                    self.raw_seat_pos.append(self.pos)  # Back potentiometer (ai22)
+                    self.handle_position.append(handle_position)  # Front potentiometer (ai21)
+                    self.handle_force.append(self._convert_handle_force_voltage(handle_force))  # Handle force sensor (ai20)
+                    self.L_foot_force.append(left_foot)  # Left foot force (ai16)
+                    self.R_foot_force.append(right_foot)  # Right foot force (ai18)
+                    # Note: switch_press removed - no switch sensor in new mapping
+                    self.temp_time.append(time.time())
+                    self.hardware_connected = True
 
                 # update power (need to verify)
                 if len(self.raw_seat_pos) > 1 and hasattr(self, 'temp_time'):
@@ -173,16 +586,9 @@ class SharedStats:
             except Exception as e:
                 print(f"Hardware error: {e}")
                 self.hardware_connected = False
-                # Clean up task on error
-                if self.sensor_task is not None:
-                    try:
-                        self.sensor_task.close()
-                    except:
-                        pass
-                    self.sensor_task = None
                 # Fall through to simulation mode
         
-        # Simulation mode (always used on macOS, fallback for Windows/Linux)
+        # Simulation mode (always used on macOS, fallback for Windows/Linux, unless CSV playback)
         if not hasattr(self, 'temp_time'):
             self.temp_time = []
         self.temp_time.append(time.time())
@@ -265,13 +671,6 @@ class SharedStats:
     
     def stop_writing_stats(self):
         self.stats_file_path = None
-        # Clean up sensor task when stopping stats collection
-        if self.sensor_task is not None:
-            try:
-                self.sensor_task.close()
-            except:
-                pass
-            self.sensor_task = None
 
 # ------------------------------------------------------------------------------------------------------------
 
@@ -294,9 +693,9 @@ class SpriteManager:
     def load_palm_tree_sprite(self, scale=1.0):
         """Load palm tree sprite from PNG file"""
         try:
-            # Get the path to the palm_tree.png file (in same directory as script)
-            script_dir = os.path.dirname(__file__)
-            palm_tree_path = os.path.join(script_dir, "palm_tree.png")
+            # Get the path to the palm-tree.png file (in parent directory)
+            script_dir = os.path.dirname(os.path.dirname(__file__))
+            palm_tree_path = os.path.join(script_dir, "palm-tree.png")
             
             # Load the PNG image
             img = Image.open(palm_tree_path)
@@ -323,9 +722,8 @@ class SpriteManager:
     def load_cloud_sprite(self):
         """Load cloud sprite from PNG file"""
         try:
-            # Get the path to the cloud.png file (in same directory as script)
-            # Note: cloud.png doesn't exist, will fallback to programmatic generation
-            script_dir = os.path.dirname(__file__)
+            # Get the path to the cloud.png file (in parent directory)
+            script_dir = os.path.dirname(os.path.dirname(__file__))
             cloud_path = os.path.join(script_dir, "cloud.png")
             
             # Load the PNG image
@@ -591,8 +989,8 @@ class GamePage(wx.Panel):
             if self.shared_state.switch_press:
                 print('switch press', self.shared_state.switch_press[-1])
         
-        # Only simulate data if hardware is not connected (simulation mode)
-        if not self.shared_state.hardware_connected:
+        # Only simulate data if hardware is not connected and not in CSV playback mode
+        if not self.shared_state.hardware_connected and not getattr(self.shared_state, 'anc_playback_mode', False):
             # Simulate seat position for FES indicator (no visual seat anymore)
             if not self.shared_state.raw_seat_pos:
                 self.shared_state.raw_seat_pos.append(self.shared_state.back_max_pos)
@@ -1630,10 +2028,29 @@ class ModernFESIndicator(wx.Panel):
         dc.DrawRoundedRectangle(main_bar_x, bar_y, bar_width, bar_height, 25)
         
         # Calculate progress based on seat position
-        if self.shared_state.converted_seat_position:
-            current_progress = self.shared_state.converted_seat_position[-1] / 100.0
+        # Use ANC percentiles if available, otherwise use 0-100 scale
+        if hasattr(self.shared_state, 'seat_position_p10') and hasattr(self.shared_state, 'seat_position_p90'):
+            # Use ANC-based percentiles with mm position
+            if self.shared_state.seat_position_mm:
+                current_pos_mm = self.shared_state.seat_position_mm[-1]  # position in mm
+                p10 = self.shared_state.seat_position_p10
+                p90 = self.shared_state.seat_position_p90
+                
+                # Map position to 0-1 scale based on percentiles
+                if p90 > p10:
+                    # Map [p10, p90] to [0, 1]
+                    current_progress = (current_pos_mm - p10) / (p90 - p10)
+                    current_progress = max(0.0, min(1.0, current_progress))  # Clamp to [0, 1]
+                else:
+                    current_progress = 0.0
+            else:
+                current_progress = 0.0
         else:
-            current_progress = 0.0
+            # Fallback to 0-100 scale
+            if self.shared_state.converted_seat_position:
+                current_progress = self.shared_state.converted_seat_position[-1] / 100.0
+            else:
+                current_progress = 0.0
         
         # Determine direction and color
         if len(self.shared_state.converted_seat_position) >= 2:

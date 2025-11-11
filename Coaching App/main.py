@@ -18,6 +18,9 @@ class RowingApp(wx.App):
 class MainFrame(wx.Frame):
     def __init__(self, *args, **kw):
         super(MainFrame, self).__init__(*args, **kw)
+        
+        # Bind close event to cleanup hardware
+        self.Bind(wx.EVT_CLOSE, self.OnClose)
 
         self.shared_state = SharedStats()
 
@@ -77,6 +80,12 @@ class MainFrame(wx.Frame):
         self.current_panel = self.instructions_page
         self.Refresh()
         self.Layout()
+    
+    def OnClose(self, event):
+        """Handle application close event - cleanup hardware resources"""
+        if hasattr(self, 'shared_state'):
+            self.shared_state.cleanup_hardware()
+        event.Skip()  # Allow normal close process to continue
 
 
 if __name__ == "__main__":
