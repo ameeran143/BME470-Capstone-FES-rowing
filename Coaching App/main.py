@@ -5,6 +5,7 @@ from calib_page_new import CalibPage
 from game_page import GamePage
 from game_page import SharedStats
 from instructions import InstructionsPage
+from session_summary import SessionSummaryPage
 
 class RowingApp(wx.App):
     def OnInit(self):
@@ -37,6 +38,7 @@ class MainFrame(wx.Frame):
         self.calib_page = CalibPage(self, self.shared_state)
         self.game_page = GamePage(self, self.shared_state)
         self.instructions_page = InstructionsPage(self)
+        self.summary_page = None  # Will be created when needed
         
         self.sizer.Add(self.start_page, 1, wx.EXPAND)
         self.sizer.Add(self.calib_page, 1, wx.EXPAND)
@@ -78,6 +80,22 @@ class MainFrame(wx.Frame):
         self.current_panel.Hide()
         self.instructions_page.Show()
         self.current_panel = self.instructions_page
+        self.Refresh()
+        self.Layout()
+    
+    def switch_to_summary_page(self, summary_data):
+        """Switch to session summary page with summary data"""
+        # Create summary page if it doesn't exist or recreate it
+        if self.summary_page is not None:
+            self.sizer.Remove(self.summary_page)
+            self.summary_page.Destroy()
+        
+        self.summary_page = SessionSummaryPage(self, summary_data)
+        self.sizer.Add(self.summary_page, 1, wx.EXPAND)
+        
+        self.current_panel.Hide()
+        self.summary_page.Show()
+        self.current_panel = self.summary_page
         self.Refresh()
         self.Layout()
     

@@ -67,6 +67,7 @@ class SharedStats:
         self.fes_active_pos = self.front_max_pos - 96.5 # constant (different for each user)
         self.converted_fes_pos = 100 - (self.fes_active_pos - self.front_max_pos) / (self.back_max_pos - self.front_max_pos) * 100
         self.userID = None
+        self.user_name = "Alex Johnson"  # Default fictitious user name
         self.age = 0
         self.height = 0
         self.weight = 0
@@ -117,19 +118,6 @@ class SharedStats:
         self.anc_sampling_rate = 10  # Hz (default, will be estimated from CSV)
         self.anc_index_step = 1  # Default downsampling factor for playback
         self.anc_power_series = []
-        
-        # Try auto-load CSV data if file exists
-        try:
-            project_root = os.path.dirname(os.path.dirname(__file__))
-            csv_path = os.path.join(project_root, "Test_Recordings", "hikaru", "sensor_data.csv")
-            if os.path.exists(csv_path):
-                self.load_sensor_csv(csv_path)
-                # Enable CSV playback mode if hardware mode is disabled
-                if not self.hardware_mode:
-                    self.anc_playback_mode = True
-                    print("✅ CSV playback mode enabled")
-        except Exception as e:
-            print(f"CSV init load failed: {e}")
     
     def convert_raw_to_scale(self, raw_pos):
         if raw_pos:
@@ -143,12 +131,27 @@ class SharedStats:
             return raw_pos
         return None
         
+    def get_user_data_dir(self):
+        """Get the user-specific data directory, creating it if needed"""
+        # Use user_name for folder name, sanitize for filesystem
+        if not self.user_name:
+            self.user_name = "Unknown User"
+        
+        # Sanitize user name for filesystem (remove invalid characters)
+        safe_name = "".join(c for c in self.user_name if c.isalnum() or c in (' ', '-', '_')).strip()
+        if not safe_name:
+            safe_name = "Unknown User"
+        
+        # Create user-specific subfolder
+        base_dir = os.path.join(os.path.dirname(__file__), "user_session_data")
+        user_dir = os.path.join(base_dir, safe_name)
+        os.makedirs(user_dir, exist_ok=True)
+        return user_dir
+    
     def create_stats_file(self):
-        filename = f"{self.userID}_rowing_stats_{time.strftime('%Y%m%d_%H%M%S')}.csv"
-        # Use relative path to data folder in the same directory as the script
-        training_data_dir = os.path.join(os.path.dirname(__file__), "data")
-        # Ensure the data directory exists
-        os.makedirs(training_data_dir, exist_ok=True)
+        filename = f"rowing_stats_{time.strftime('%Y%m%d_%H%M%S')}.csv"
+        # Use user-specific data directory
+        training_data_dir = self.get_user_data_dir()
         self.stats_file_path = os.path.join(training_data_dir, filename)
         
         with open(self.stats_file_path, 'w', newline='') as file:
@@ -714,6 +717,86 @@ class SharedStats:
                 print(f"⚠️  Error closing hardware task: {e}")
             finally:
                 self.hardware_task = None
+    
+    def start_csv_playback(self):
+        """Start CSV playback mode - called when game screen starts"""
+        # Only start if hardware mode is disabled and CSV data is available
+        if not self.hardware_mode:
+            try:
+                project_root = os.path.dirname(os.path.dirname(__file__))
+                csv_path = os.path.join(project_root, "Test_Recordings", "hikaru", "sensor_data.csv")
+                if os.path.exists(csv_path):
+                    self.load_sensor_csv(csv_path)
+                    if self.anc_data:
+                        self.anc_playback_mode = True
+                        self.anc_index = 0  # Reset index
+                        self.anc_playback_start_time = None  # Reset start time
+                        print("✅ CSV playback mode enabled")
+                else:
+                    print(f"⚠️  CSV file not found: {csv_path}")
+            except Exception as e:
+                print(f"CSV playback start failed: {e}")
+    
+    def save_session_summary(self):
+        """Save session summary to CSV file (one file per user, append rows)"""
+        # Calculate final metrics
+        total_time_minutes = self.time_elapsed
+        
+        # Average power: average of all avg_power values
+        if self.avg_power:
+            avg_power = sum(self.avg_power) / len(self.avg_power)
+        else:
+            avg_power = 0.0
+        
+        # Total distance (already calculated)
+        total_distance = self.total_distance
+        
+        # Average accuracy
+        total_attempts = self.score + self.misses
+        if total_attempts > 0:
+            avg_accuracy = (self.score / total_attempts) * 100
+        else:
+            avg_accuracy = 0.0
+        
+        # Use user-specific data directory
+        data_dir = self.get_user_data_dir()
+        filename = "session_summary.csv"
+        file_path = os.path.join(data_dir, filename)
+        
+        # Check if file exists to determine if we need to write headers
+        file_exists = os.path.exists(file_path)
+        
+        # Get current timestamp
+        timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
+        
+        # Write to CSV (append mode)
+        with open(file_path, 'a', newline='') as file:
+            writer = csv.writer(file)
+            
+            # Write header if file is new
+            if not file_exists:
+                writer.writerow(["User Name", "Total Time (min)", "Average Power (W)", "Total Distance (m)", "Average Accuracy (%)", "Date/Time"])
+            
+            # Write session data
+            writer.writerow([
+                self.user_name,
+                f"{total_time_minutes:.2f}",
+                f"{avg_power:.2f}",
+                f"{total_distance:.2f}",
+                f"{avg_accuracy:.2f}",
+                timestamp
+            ])
+        
+        print(f"✅ Session summary saved to: {file_path}")
+        
+        # Return summary data for display
+        return {
+            "user_name": self.user_name,
+            "total_time": total_time_minutes,
+            "avg_power": avg_power,
+            "total_distance": total_distance,
+            "avg_accuracy": avg_accuracy
+        }
 
 # ------------------------------------------------------------------------------------------------------------
 
@@ -1010,9 +1093,19 @@ class GamePage(wx.Panel):
         self.fes_indicator_panel = ModernFESIndicator(self, self.shared_state)
         outer_sizer.Add(self.fes_indicator_panel, 2, wx.EXPAND | wx.ALL, 20)
 
+        # Button container for bottom-right buttons
+        button_container = wx.BoxSizer(wx.HORIZONTAL)
+        button_container.AddStretchSpacer()
+        
         # initialize back button
         self.back_button = CustomButton(self, label="\nBack\n", size=(120, 60), font=30, handler=self.on_back_button)
-        outer_sizer.Add(self.back_button, 0, wx.ALIGN_RIGHT | wx.ALL, 10)
+        button_container.Add(self.back_button, 0, wx.ALL, 10)
+        
+        # initialize finish session button (bottom-right)
+        self.finish_button = CustomButton(self, label="\nFinish Session\n", size=(180, 60), font=30, handler=self.on_finish_session)
+        button_container.Add(self.finish_button, 0, wx.ALL, 10)
+        
+        outer_sizer.Add(button_container, 0, wx.EXPAND | wx.ALL, 0)
 
         self.SetSizer(outer_sizer)
 
@@ -1020,6 +1113,9 @@ class GamePage(wx.Panel):
         self.timer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self.on_timer, self.timer)
         self.timer.Start(100)
+        
+        # Start CSV playback if not in hardware mode
+        self.shared_state.start_csv_playback()
 
     def on_timer(self, event):
         self.shared_state.update_stats()
@@ -1044,11 +1140,35 @@ class GamePage(wx.Panel):
         self.stats_panel.reset()
         self.rowing_scene_panel.reset()
         self.fes_indicator_panel.reset()
+        # Restart timer if it was stopped
+        if not self.timer.IsRunning():
+            self.timer.Start(100)
+        # Reset CSV playback for new session
+        if self.shared_state.anc_playback_mode:
+            self.shared_state.anc_index = 0
+            self.shared_state.anc_playback_start_time = None
+        # Start CSV playback if not in hardware mode
+        self.shared_state.start_csv_playback()
 
     def on_back_button(self, event):
         self.shared_state.stop_writing_stats()
         parent = self.GetParent()
         parent.switch_to_start_page()
+    
+    def on_finish_session(self, event):
+        """Handle finish session button click - save summary and show summary screen"""
+        # Stop the timer
+        self.timer.Stop()
+        
+        # Stop writing stats
+        self.shared_state.stop_writing_stats()
+        
+        # Save session summary to CSV
+        summary_data = self.shared_state.save_session_summary()
+        
+        # Switch to summary page
+        parent = self.GetParent()
+        parent.switch_to_summary_page(summary_data)
 
 # ------------------------------------------------------------------------------------------------------------
 
