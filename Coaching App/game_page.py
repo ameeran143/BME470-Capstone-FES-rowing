@@ -24,11 +24,12 @@ import nidaqmx
 # import pygame
 import csv
 import math
+import json
 from PIL import Image, ImageDraw
 from scipy import signal
 
-#Correct_Sound = pygame.mixer.Sound(os.path.join(os.path.dirname(__file__), "assets", "sounds", "Correct_Sound.wav"))
-#Wrong_Sound = pygame.mixer.Sound(os.path.join(os.path.dirname(__file__), "assets", "sounds", "Wrong_Sound.wav"))
+#Correct_Sound = pygame.mixer.Sound("Correct_Sound.wav")
+#Wrong_Sound = pygame.mixer.Sound("Wrong_Sound.wav")
 
 class SharedStats:
     def __init__(self):
@@ -54,6 +55,13 @@ class SharedStats:
         self.switch_press = []  # [REMOVED - no switch sensor in new mapping]
         self.stroke_time = []  # start time of each stroke
         self.stroke_duration = []
+        
+        # CSV playback mode min/max values (calculated from CSV data, not calibration)
+        self.csv_seat_min = None  # Minimum seat position from CSV data (in mm)
+        self.csv_seat_max = None  # Maximum seat position from CSV data (in mm)
+
+        # Mode flag: True for automatic mode, False for manual mode
+        self.is_automatic_mode = False
 
         # FES button
         self.is_pressed = False
@@ -62,9 +70,10 @@ class SharedStats:
         self.msg = False
 
         # for calibration
-        self.front_max_pos = 520  # default calibration value equal 100
-        self.back_max_pos = 43  # default calibration value equal 0
+        self.front_max_pos = 520  # fake data equal 100
+        self.back_max_pos = 43  # fake data equal 0
         self.fes_active_pos = self.front_max_pos - 96.5 # constant (different for each user)
+        self.seat_direction = 0  # fake data
         self.converted_fes_pos = 100 - (self.fes_active_pos - self.front_max_pos) / (self.back_max_pos - self.front_max_pos) * 100
         self.userID = None
         self.user_name = "Alex Johnson"  # Default fictitious user name
@@ -76,12 +85,52 @@ class SharedStats:
         # File to store stats
         self.stats_file_path = None
         
-        # Hardware mode: True = use sensors, False = use CSV playback
-        self.hardware_mode = False  # Set to True for hardware sensors, False for CSV playback
+        # Hardware testing - Auto-detect OS
+        import platform
+        self.is_mac = platform.system() == 'Darwin'
+        self.hardware_mode = not self.is_mac  # Disable hardware mode on Mac
         self.hardware_connected = False
+        self.last_hardware_check = 0
+        
+        # Mode control: "hardware", "csv_playback", or "simulation"
+        self.current_mode = None  # Will be determined by detect_mode()
+        self.mode_override = None  # Manual override (None = auto-detect)
+        
+        # CSV playback mode (replay data from sensor CSV files)
+        self.anc_playback_mode = False
+        self.anc_data = []  # list of tuples: (L_foot, R_foot, handle_force, handle_pos, raw_seat_pos)
+        self.anc_index = 0
+        self.anc_extra = []  # list of tuples: (time, ...) or other auxiliary columns
+        self.anc_playback_start_time = None  # Track playback start time
+        self.anc_source_type = "csv_voltage"  # csv_voltage | other
+        self.anc_sampling_rate = 10  # Hz (default, will be estimated from CSV)
+        self.anc_index_step = 1  # Default downsampling factor for playback
+        self.anc_power_series = []
+        
+        # Hardware mode raw voltage storage for processing
+        self.hardware_raw_voltages = {
+            'handle_force': [],
+            'handle_position': [],
+            'seat_position': [],
+            'left_foot': [],
+            'right_foot': []
+        }
+        self.hardware_processing_buffer_size = 100  # Buffer size for filtering
+        self.hardware_min_values = {
+            'handle_force': None,
+            'handle_position': None,
+            'seat_position': None
+        }
+        self.hardware_volts_to_mm_factor = 2032.0 / 10.0  # Conversion factor for potentiometers
+        self.hardware_sampling_rate = 10.0  # Hz (will be estimated from timing)
+        
+        # Hardware task for persistent connection (B - from game_page.py)
         self.hardware_task = None  # Persistent task for sensor readings
         
-        # Initialize hardware task if in hardware mode
+        # Auto-detect and set mode first
+        self.detect_and_set_mode()
+        
+        # Initialize hardware task if in hardware mode (after mode detection)
         if self.hardware_mode:
             try:
                 self.hardware_task = nidaqmx.Task()
@@ -107,21 +156,257 @@ class SharedStats:
                 print(f"❌ Failed to initialize hardware task: {e}")
                 print("   Sensor mode will not be available")
                 self.hardware_task = None
+    
+    def test_hardware_connection(self):
+        """Test if NI-DAQ device is connected and responsive"""
+        if self.is_mac:
+            return False  # Hardware not supported on macOS
         
-        # CSV playback mode (replay data from sensor CSV files)
-        self.anc_playback_mode = False
-        self.anc_data = []  # list of tuples: (L_foot, R_foot, handle_force, handle_pos, raw_seat_pos)
-        self.anc_index = 0
-        self.anc_extra = []  # list of tuples: (time, ...) or other auxiliary columns
-        self.anc_playback_start_time = None  # Track playback start time
-        self.anc_source_type = "csv_voltage"  # csv_voltage | other
-        self.anc_sampling_rate = 10  # Hz (default, will be estimated from CSV)
-        self.anc_index_step = 1  # Default downsampling factor for playback
-        self.anc_power_series = []
+        try:
+            with nidaqmx.Task() as task:
+                # Test with the new channel mapping - add each channel individually
+                task.ai_channels.add_ai_voltage_chan("Dev2/ai16",
+                                                     terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
+                                                     min_val=0.0, max_val=10.0)
+                task.ai_channels.add_ai_voltage_chan("Dev2/ai18",
+                                                     terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
+                                                     min_val=0.0, max_val=10.0)
+                task.ai_channels.add_ai_voltage_chan("Dev2/ai20",
+                                                     terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
+                                                     min_val=0.0, max_val=10.0)
+                task.ai_channels.add_ai_voltage_chan("Dev2/ai21",
+                                                     terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
+                                                     min_val=0.0, max_val=10.0)
+                task.ai_channels.add_ai_voltage_chan("Dev2/ai22",
+                                                     terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
+                                                     min_val=0.0, max_val=10.0)
+                return True
+        except Exception as e:
+            print(f"Hardware connection test failed: {e}")
+            return False
+    
+    def find_csv_recordings(self):
+        """Find available CSV recording files in Test_Recordings directory"""
+        csv_files = []
+        try:
+            project_root = os.path.dirname(os.path.dirname(__file__))
+            recordings_dir = os.path.join(project_root, "Test_Recordings")
+            
+            if not os.path.exists(recordings_dir):
+                return csv_files
+            
+            # Search for sensor_data.csv files in subdirectories
+            for root, dirs, files in os.walk(recordings_dir):
+                for file in files:
+                    if file == "sensor_data.csv":
+                        csv_path = os.path.join(root, file)
+                        csv_files.append(csv_path)
+            
+            # Sort by modification time (newest first)
+            csv_files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+        except Exception as e:
+            print(f"Error searching for CSV files: {e}")
+        
+        return csv_files
+    
+    def load_calibration_data(self, userID=None):
+        """Load calibration data from JSON file.
+        
+        Args:
+            userID: Deprecated parameter (kept for compatibility, but not used).
+        
+        Returns:
+            bool: True if calibration data was loaded successfully, False otherwise
+        """
+        try:
+            calib_dir = os.path.join(os.path.dirname(__file__), "Calibration_Data")
+            
+            if not os.path.exists(calib_dir):
+                print("Calibration_Data directory not found")
+                return False
+            
+            # Load the latest calibration file
+            calib_file = os.path.join(calib_dir, "calibration_latest.json")
+            
+            if not os.path.exists(calib_file):
+                print(f"Calibration file not found: {calib_file}")
+                return False
+            
+            # Load calibration data
+            with open(calib_file, 'r') as f:
+                calib_data = json.load(f)
+            
+            # Update shared_state with calibration values only (zero-shifted positions)
+            self.front_max_pos = calib_data.get("front_max_pos", self.front_max_pos)
+            self.back_max_pos = calib_data.get("back_max_pos", self.back_max_pos)
+            # Calculate fes_active_pos and converted_fes_pos from zero-shifted positions
+            self.fes_active_pos = self.front_max_pos - 96.5
+            if self.back_max_pos != self.front_max_pos:
+                self.converted_fes_pos = 100 - (self.fes_active_pos - self.front_max_pos) / (self.back_max_pos - self.front_max_pos) * 100
+            else:
+                self.converted_fes_pos = 0
+            
+            return True
+            
+        except Exception as e:
+            print(f"Failed to load calibration data: {e}")
+            return False
+    
+    def detect_and_set_mode(self):
+        """Detect and set the appropriate mode based on priority:
+        1. Hardware (if connected)
+        2. CSV playback (if CSV files found)
+        3. Simulation (fallback)
+        """
+        # Check for manual override
+        if self.mode_override:
+            mode = self.mode_override
+        else:
+            # Auto-detect mode based on priority
+            # Priority 1: Hardware
+            if not self.is_mac and self.test_hardware_connection():
+                mode = "hardware"
+            else:
+                # Priority 2: CSV playback - check for default CSV first
+                project_root = os.path.dirname(os.path.dirname(__file__))
+                default_csv_path = os.path.join(project_root, "Test_Recordings", "hikaru", "sensor_data.csv")
+                
+                if os.path.exists(default_csv_path):
+                    try:
+                        self.load_sensor_csv(default_csv_path)
+                        mode = "csv_playback"
+                    except Exception as e:
+                        print(f"⚠️  Failed to load CSV: {e}")
+                        mode = "simulation"
+                else:
+                    # Priority 3: Simulation (default CSV not found)
+                    mode = "simulation"
+        
+        # Set the mode
+        self.current_mode = mode
+        
+        # Load calibration data only for hardware mode
+        if mode == "hardware":
+            calib_loaded = self.load_calibration_data()
+            if not calib_loaded:
+                # Display error message if calibration data not found
+                import wx
+                error_msg = (
+                    "⚠️  CALIBRATION DATA NOT FOUND\n\n"
+                    "Hardware acquisition mode requires calibration data.\n"
+                    "Please run calibration first before using hardware mode.\n\n"
+                    "The system will fall back to simulation mode."
+                )
+                # Show wx message box if wx is available
+                try:
+                    wx.MessageBox(error_msg, "Calibration Required", wx.OK | wx.ICON_WARNING)
+                except:
+                    pass
+                # Fall back to simulation mode
+                mode = "simulation"
+                self.current_mode = mode
+                self.hardware_mode = False
+                self.hardware_connected = False
+        
+        # Configure mode-specific settings
+        if mode == "hardware":
+            self.hardware_mode = True
+            self.anc_playback_mode = False
+            self.hardware_connected = True
+        elif mode == "csv_playback":
+            self.hardware_mode = False
+            self.anc_playback_mode = True
+            self.hardware_connected = False
+        else:  # simulation
+            self.hardware_mode = False
+            self.anc_playback_mode = False
+            self.hardware_connected = False
+    
+    def set_mode(self, mode, csv_path=None):
+        """Manually set the mode. Modes: 'hardware', 'csv_playback', 'simulation', or None (auto-detect)
+        
+        Args:
+            mode: Mode string or None for auto-detect
+            csv_path: Optional path to CSV file (only used if mode is 'csv_playback')
+        """
+        if mode is None:
+            self.mode_override = None
+            self.detect_and_set_mode()
+        elif mode == "hardware":
+            if self.is_mac:
+                return False
+            if not self.test_hardware_connection():
+                return False
+            # Check for calibration data
+            calib_loaded = self.load_calibration_data()
+            if not calib_loaded:
+                # Display error message if calibration data not found
+                import wx
+                error_msg = (
+                    "⚠️  CALIBRATION DATA NOT FOUND\n\n"
+                    "Hardware acquisition mode requires calibration data.\n"
+                    "Please run calibration first before using hardware mode.\n\n"
+                    "Cannot switch to hardware mode."
+                )
+                # Show wx message box if wx is available
+                try:
+                    wx.MessageBox(error_msg, "Calibration Required", wx.OK | wx.ICON_WARNING)
+                except:
+                    pass
+                return False
+            self.mode_override = "hardware"
+            self.current_mode = "hardware"
+            self.hardware_mode = True
+            self.anc_playback_mode = False
+            self.hardware_connected = True
+            return True
+        elif mode == "csv_playback":
+            if csv_path:
+                try:
+                    self.load_sensor_csv(csv_path)
+                except Exception as e:
+                    print(f"⚠️  Failed to load CSV: {e}")
+                    return False
+            elif not self.anc_data:
+                # Check for default CSV first
+                project_root = os.path.dirname(os.path.dirname(__file__))
+                default_csv_path = os.path.join(project_root, "Test_Recordings", "hikaru", "sensor_data.csv")
+                
+                if os.path.exists(default_csv_path):
+                    try:
+                        self.load_sensor_csv(default_csv_path)
+                    except Exception as e:
+                        print(f"⚠️  Failed to load CSV: {e}")
+                        return False
+                else:
+                    print(f"⚠️  Default CSV not found at: {default_csv_path}")
+                    print("   Cannot switch to CSV playback mode")
+                    return False
+            self.mode_override = "csv_playback"
+            self.current_mode = "csv_playback"
+            self.hardware_mode = False
+            self.anc_playback_mode = True
+            self.hardware_connected = False
+            return True
+        elif mode == "simulation":
+            self.mode_override = "simulation"
+            self.current_mode = "simulation"
+            self.hardware_mode = False
+            self.anc_playback_mode = False
+            self.hardware_connected = False
+            return True
+        else:
+            return False
     
     def convert_raw_to_scale(self, raw_pos):
         if raw_pos:
-            converted = 100 - (raw_pos - self.front_max_pos) / (self.back_max_pos - self.front_max_pos) * 100
+            # Use CSV min/max if in CSV playback mode, otherwise use calibration values
+            if self.current_mode == "csv_playback" and self.csv_seat_min is not None and self.csv_seat_max is not None:
+                # Use CSV-derived min/max values
+                converted = 100 - (raw_pos - self.csv_seat_max) / (self.csv_seat_min - self.csv_seat_max) * 100
+            else:
+                # Use calibration values (for hardware mode or simulation)
+                converted = 100 - (raw_pos - self.front_max_pos) / (self.back_max_pos - self.front_max_pos) * 100
             return converted
         return None
     
@@ -130,7 +415,7 @@ class SharedStats:
             raw_pos = self.front_max_pos + (100 - converted) / 100 * (self.back_max_pos - self.front_max_pos)
             return raw_pos
         return None
-        
+    
     def get_user_data_dir(self):
         """Get the user-specific data directory, creating it if needed"""
         # Use user_name for folder name, sanitize for filesystem
@@ -147,7 +432,7 @@ class SharedStats:
         user_dir = os.path.join(base_dir, safe_name)
         os.makedirs(user_dir, exist_ok=True)
         return user_dir
-    
+        
     def create_stats_file(self):
         filename = f"rowing_stats_{time.strftime('%Y%m%d_%H%M%S')}.csv"
         # Use user-specific data directory
@@ -223,21 +508,18 @@ class SharedStats:
                     # Trim first 5 seconds
                     self.anc_data = self.anc_data[samples_to_trim:]
                     self.anc_extra = self.anc_extra[samples_to_trim:]
-                    print(f"Trimmed first 5 seconds: {len(self.anc_data)} samples remaining")
                     # Trim last 5 seconds
                     self.anc_data = self.anc_data[:-samples_to_trim]
                     self.anc_extra = self.anc_extra[:-samples_to_trim]
-                    print(f"Trimmed last 5 seconds: {len(self.anc_data)} samples remaining")
 
             if self.anc_data:
-                self._process_seat_position()
-                self.plot_anc_data(file_path)
-                print(f"Loaded CSV playback samples: {len(self.anc_data)} from {file_path}")
-                print(f"Estimated sampling rate: {self.anc_sampling_rate:.2f} Hz; playback step: {self.anc_index_step}")
+                self._process_data()
+                # Plotting disabled for CSV playback mode
+                # self.plot_anc_data(file_path)
         except Exception as e:
             print(f"Failed to load sensor CSV: {e}")
 
-    def _process_seat_position(self):
+    def _process_data(self):
         """Apply Butterworth low-pass filter and remap seat position to millimeters."""
         if not self.anc_data or len(self.anc_data) == 0:
             return
@@ -320,11 +602,15 @@ class SharedStats:
                 force_min = min(remapped_force)
                 remapped_force = [x - force_min for x in remapped_force]
             
-            # Calculate 10th and 90th percentiles for color threshold
+            # Calculate release and press positions for FES timing indicator
             import numpy as np
             seat_array = np.array(remapped_seat)
-            self.seat_position_p10 = np.percentile(seat_array, 15)  #the optimal timing for anterior position is not defined yet, so set to 15th percentile for now 
-            self.seat_position_p90 = max(seat_array) - 140  #set it to 140 mm seat position from the front, max(seat_array) would be based on the calibrated values in practice
+            self.seat_position_release = max(seat_array)* 0.15  #the optimal timing for anterior position is not defined yet, so set to 15th percentile for now 
+            self.seat_position_press = max(seat_array) - 140  #set it to 140 mm seat position from the front, max(seat_array) would be based on the calibrated values in practice
+            
+            # Store CSV min/max values for use in CSV playback mode (not calibration values)
+            self.csv_seat_min = min(seat_array)
+            self.csv_seat_max = max(seat_array)
             
             # Update the anc_data with filtered and remapped channels
             self.anc_data = [
@@ -355,22 +641,136 @@ class SharedStats:
             force_units = "raw units"
             if self.anc_source_type == "csv_voltage":
                 force_units = "N"
-            print(f"Applied {cutoff:.1f} Hz Butterworth filter and remapped seat position:")
-            print(f"  Force input range: {min_force_raw:.2f}-{max_force_raw:.2f} {force_units}")
-            print(f"  Force output range: {min(remapped_force):.2f}-{max(remapped_force):.2f} {force_units} (offset)")
-            print(f"  Seat input range: {min_seat_raw:.2f}-{max_seat_raw:.2f} {source_units}")
-            print(f"  Seat output range: {min(remapped_seat):.2f}-{max(remapped_seat):.2f} mm")
-            print(f"  Handle input range: {min_handle_raw:.2f}-{max_handle_raw:.2f} {source_units}")
-            print(f"  Handle output range: {min(remapped_handle):.2f}-{max(remapped_handle):.2f} mm")
-            if self.anc_source_type == "csv_voltage":
-                print(f"  Force final range (shifted): 0-{max(remapped_force):.2f} {force_units}")
-                print(f"  Seat final range (shifted): 0-{max(remapped_seat):.2f} mm")
-                print(f"  Handle final range (shifted): 0-{max(remapped_handle):.2f} mm")
-            print(f"  10th percentile: {self.seat_position_p10:.2f} mm")
-            print(f"  90th percentile: {self.seat_position_p90:.2f} mm")
             
         except Exception as e:
             print(f"Failed to process seat position: {e}")
+
+    def _process_hardware_data(self, handle_force_voltage, handle_position_voltage, seat_position_voltage):
+        """Process hardware sensor data using the same method as CSV playback mode.
+        Applies Butterworth filter, converts voltages to physical units, and zero-shifts.
+        Returns: (processed_handle_force_N, processed_handle_position_mm, processed_seat_position_mm)
+        """
+        try:
+            # Store raw voltages
+            self.hardware_raw_voltages['handle_force'].append(handle_force_voltage)
+            self.hardware_raw_voltages['handle_position'].append(handle_position_voltage)
+            self.hardware_raw_voltages['seat_position'].append(seat_position_voltage)
+            
+            # Keep buffer size manageable
+            if len(self.hardware_raw_voltages['handle_force']) > self.hardware_processing_buffer_size:
+                self.hardware_raw_voltages['handle_force'] = self.hardware_raw_voltages['handle_force'][-self.hardware_processing_buffer_size:]
+                self.hardware_raw_voltages['handle_position'] = self.hardware_raw_voltages['handle_position'][-self.hardware_processing_buffer_size:]
+                self.hardware_raw_voltages['seat_position'] = self.hardware_raw_voltages['seat_position'][-self.hardware_processing_buffer_size:]
+            
+            # Need at least a few samples for filtering
+            if len(self.hardware_raw_voltages['handle_force']) < 10:
+                # Not enough data yet, use simple conversion without filtering
+                handle_force_N = self._convert_handle_force_voltage(handle_force_voltage)
+                handle_position_mm = handle_position_voltage * self.hardware_volts_to_mm_factor
+                seat_position_mm = seat_position_voltage * self.hardware_volts_to_mm_factor
+                
+                # Track minimums for zero-shifting
+                if self.hardware_min_values['handle_force'] is None:
+                    self.hardware_min_values['handle_force'] = handle_force_N
+                else:
+                    self.hardware_min_values['handle_force'] = min(self.hardware_min_values['handle_force'], handle_force_N)
+                
+                if self.hardware_min_values['handle_position'] is None:
+                    self.hardware_min_values['handle_position'] = handle_position_mm
+                else:
+                    self.hardware_min_values['handle_position'] = min(self.hardware_min_values['handle_position'], handle_position_mm)
+                
+                if self.hardware_min_values['seat_position'] is None:
+                    self.hardware_min_values['seat_position'] = seat_position_mm
+                else:
+                    self.hardware_min_values['seat_position'] = min(self.hardware_min_values['seat_position'], seat_position_mm)
+                
+                # Apply zero-shifting
+                handle_force_N = handle_force_N - self.hardware_min_values['handle_force']
+                handle_position_mm = handle_position_mm - self.hardware_min_values['handle_position']
+                seat_position_mm = seat_position_mm - self.hardware_min_values['seat_position']
+                
+                return handle_force_N, handle_position_mm, seat_position_mm
+            
+            # Apply Butterworth filter (same as CSV processing)
+            fs = self.hardware_sampling_rate if self.hardware_sampling_rate > 0 else 10.0
+            cutoff = 10.0  # Hz
+            nyquist = fs / 2
+            
+            def _filter_channel(series):
+                if not series or len(series) < 4:
+                    return series
+                if nyquist <= 0:
+                    return series
+                local_cutoff = cutoff
+                if local_cutoff >= nyquist:
+                    local_cutoff = max(0.1, nyquist * 0.9)
+                normal_cutoff = local_cutoff / nyquist
+                if normal_cutoff >= 1.0 or normal_cutoff <= 0.0:
+                    return series
+                b, a = signal.butter(4, normal_cutoff, btype='low')
+                filtered = signal.filtfilt(b, a, series)
+                return filtered.tolist() if hasattr(filtered, "tolist") else filtered
+            
+            # Filter the voltage series
+            filtered_force_voltage = _filter_channel(self.hardware_raw_voltages['handle_force'])
+            filtered_handle_voltage = _filter_channel(self.hardware_raw_voltages['handle_position'])
+            filtered_seat_voltage = _filter_channel(self.hardware_raw_voltages['seat_position'])
+            
+            # Get the latest filtered value
+            if filtered_force_voltage:
+                latest_force_voltage = filtered_force_voltage[-1]
+            else:
+                latest_force_voltage = handle_force_voltage
+            
+            if filtered_handle_voltage:
+                latest_handle_voltage = filtered_handle_voltage[-1]
+            else:
+                latest_handle_voltage = handle_position_voltage
+            
+            if filtered_seat_voltage:
+                latest_seat_voltage = filtered_seat_voltage[-1]
+            else:
+                latest_seat_voltage = seat_position_voltage
+            
+            # Convert voltages to physical units (same as CSV processing)
+            # Handle force: voltage to Newtons
+            handle_force_N = self._convert_handle_force_voltage(latest_force_voltage)
+            
+            # Handle position and seat position: voltage to mm
+            handle_position_mm = latest_handle_voltage * self.hardware_volts_to_mm_factor
+            seat_position_mm = latest_seat_voltage * self.hardware_volts_to_mm_factor
+            
+            # Track minimums for zero-shifting
+            if self.hardware_min_values['handle_force'] is None:
+                self.hardware_min_values['handle_force'] = handle_force_N
+            else:
+                self.hardware_min_values['handle_force'] = min(self.hardware_min_values['handle_force'], handle_force_N)
+            
+            if self.hardware_min_values['handle_position'] is None:
+                self.hardware_min_values['handle_position'] = handle_position_mm
+            else:
+                self.hardware_min_values['handle_position'] = min(self.hardware_min_values['handle_position'], handle_position_mm)
+            
+            if self.hardware_min_values['seat_position'] is None:
+                self.hardware_min_values['seat_position'] = seat_position_mm
+            else:
+                self.hardware_min_values['seat_position'] = min(self.hardware_min_values['seat_position'], seat_position_mm)
+            
+            # Apply zero-shifting (same as CSV processing)
+            handle_force_N = handle_force_N - self.hardware_min_values['handle_force']
+            handle_position_mm = handle_position_mm - self.hardware_min_values['handle_position']
+            seat_position_mm = seat_position_mm - self.hardware_min_values['seat_position']
+            
+            return handle_force_N, handle_position_mm, seat_position_mm
+            
+        except Exception as e:
+            print(f"Hardware data processing error: {e}")
+            # Fallback to simple conversion without filtering
+            handle_force_N = self._convert_handle_force_voltage(handle_force_voltage)
+            handle_position_mm = handle_position_voltage * self.hardware_volts_to_mm_factor
+            seat_position_mm = seat_position_voltage * self.hardware_volts_to_mm_factor
+            return handle_force_N, handle_position_mm, seat_position_mm
 
     @staticmethod
     def _convert_handle_force_voltage(voltage):
@@ -495,24 +895,18 @@ class SharedStats:
                 idx = int(frac * (n - 1)) if n > 0 else 0
                 draw.text((x - 10, y0 + 6), str(idx), fill=(0, 0, 0))
 
-            # Save next to data folder
-            out_dir = os.path.join(os.path.dirname(__file__), "data")
+            # Save next to Training_Data
+            out_dir = os.path.join(os.path.dirname(__file__), "Training_Data")
             os.makedirs(out_dir, exist_ok=True)
             base_name = os.path.splitext(os.path.basename(src_path))[0]
             out_path = os.path.join(out_dir, f"{base_name}_plot.png")
             img.save(out_path)
-            print(f"Saved CSV plot to: {out_path}")
-            # Try to open the plot (cross-platform)
-            try:
-                import platform
-                if platform.system() == 'Darwin':
+            # Open on macOS
+            if self.is_mac:
+                try:
                     os.system(f'open "{out_path}"')
-                elif platform.system() == 'Windows':
-                    os.startfile(out_path)
-                else:
-                    os.system(f'xdg-open "{out_path}"')
-            except Exception:
-                pass
+                except Exception:
+                    pass
         except Exception as e:
             print(f"Plotting CSV failed: {e}")
 
@@ -531,53 +925,55 @@ class SharedStats:
                 if self.anc_index >= len(self.anc_data):
                     # End of data, disable playback
                     self.anc_playback_mode = False
-                    print("📊 CSV playback completed")
                     return
-                else:
-                    # Read next sample (already downsampled by index increment)
-                    current_idx = self.anc_index
-                    l_foot, r_foot, handle_force, handle_pos, raw_seat_mm = self.anc_data[current_idx]
-                    step = max(1, int(self.anc_index_step)) if hasattr(self, "anc_index_step") else 200
-                    self.anc_index = min(self.anc_index + step, len(self.anc_data))
-                    
-                    # Append sensor data
-                    self.L_foot_force.append(l_foot)
-                    self.R_foot_force.append(r_foot)
-                    self.handle_force.append(handle_force)
-                    self.handle_position.append(handle_pos)
-                    # For CSV playback, raw_seat is already in mm after filtering
-                    self.raw_seat_pos.append(raw_seat_mm)  # Store as raw_seat_pos for compatibility
-                    self.seat_position_mm.append(raw_seat_mm)  # Store explicitly in mm
-                    
-                    # Time base for power computation
-                    if not hasattr(self, 'temp_time'):
-                        self.temp_time = []
-                    self.temp_time.append(time.time())
-                    
-                    # Convert to 0-100 scale for compatibility
-                    if self.raw_seat_pos:
-                        if self.raw_seat_pos[-1] <= self.back_max_pos:
-                            self.raw_seat_pos[-1] = self.back_max_pos
-                        elif self.raw_seat_pos[-1] >= self.front_max_pos:
-                            self.raw_seat_pos[-1] = self.front_max_pos
-                        self.converted_seat_position.append(self.convert_raw_to_scale(self.raw_seat_pos[-1]))
-                    
-                    if self.anc_power_series and current_idx < len(self.anc_power_series):
-                        power_val = self.anc_power_series[current_idx]
-                        self.temp_power.append(power_val)
-                        self.avg_power.append(sum(self.temp_power)/len(self.temp_power))
-                    elif len(self.handle_force) > 1 and len(self.handle_position) > 1 and len(self.temp_time) > 1:
-                        self.temp_power.append(((self.handle_force[-1]+self.handle_force[-2])/2)*abs(self.handle_position[-1]-self.handle_position[-2])/(self.temp_time[-1]-self.temp_time[-2]))
-                        self.avg_power.append(sum(self.temp_power)/len(self.temp_power))
-                    self.hardware_connected = False
-                    return
+                
+                # Read next sample (already downsampled by index increment)
+                current_idx = self.anc_index
+                l_foot, r_foot, handle_force, handle_pos, raw_seat_mm = self.anc_data[current_idx]
+                step = max(1, int(self.anc_index_step)) if hasattr(self, "anc_index_step") else 200
+                self.anc_index = min(self.anc_index + step, len(self.anc_data))
+                
+                # Append sensor data
+                self.L_foot_force.append(l_foot)
+                self.R_foot_force.append(r_foot)
+                self.handle_force.append(handle_force)
+                self.handle_position.append(handle_pos)
+                # For CSV playback, raw_seat is already in mm after filtering
+                self.raw_seat_pos.append(raw_seat_mm)  # Store as raw_seat_pos for compatibility
+                self.seat_position_mm.append(raw_seat_mm)  # Store explicitly in mm
+                
+                # Time base for power computation
+                if not hasattr(self, 'temp_time'):
+                    self.temp_time = []
+                self.temp_time.append(time.time())
+                
+                # Convert to 0-100 scale for compatibility
+                # Use CSV min/max values, not calibration values
+                if self.raw_seat_pos:
+                    if self.csv_seat_min is not None and self.csv_seat_max is not None:
+                        # Clip using CSV-derived values
+                        if self.raw_seat_pos[-1] <= self.csv_seat_min:
+                            self.raw_seat_pos[-1] = self.csv_seat_min
+                        elif self.raw_seat_pos[-1] >= self.csv_seat_max:
+                            self.raw_seat_pos[-1] = self.csv_seat_max
+                    self.converted_seat_position.append(self.convert_raw_to_scale(self.raw_seat_pos[-1]))
+                
+                if self.anc_power_series and current_idx < len(self.anc_power_series):
+                    power_val = self.anc_power_series[current_idx]
+                    self.temp_power.append(power_val)
+                    self.avg_power.append(sum(self.temp_power)/len(self.temp_power))
+                elif len(self.handle_force) > 1 and len(self.handle_position) > 1 and len(self.temp_time) > 1:
+                    self.temp_power.append(((self.handle_force[-1]+self.handle_force[-2])/2)*abs(self.handle_position[-1]-self.handle_position[-2])/(self.temp_time[-1]-self.temp_time[-2]))
+                    self.avg_power.append(sum(self.temp_power)/len(self.temp_power))
+                self.hardware_connected = False
+                return
             except Exception as e:
                 print(f"CSV playback error: {e}")
+                # Fallback to simulation
                 self.anc_playback_mode = False
-                return
 
-        # Hardware sensor data collection
-        if self.hardware_mode:
+        # Hardware sensor data collection (Windows/Linux only)
+        if not self.is_mac and self.hardware_mode:
             # Check if hardware task was successfully initialized
             if self.hardware_task is None:
                 print("❌ Hardware mode enabled but task initialization failed")
@@ -590,27 +986,91 @@ class SharedStats:
                 data = self.hardware_task.read(number_of_samples_per_channel=1)
                 
                 # Extract single values from nested list structure
-                left_foot = data[0][0] if isinstance(data[0], list) else data[0]
-                right_foot = data[1][0] if isinstance(data[1], list) else data[1]
-                handle_force = data[2][0] if isinstance(data[2], list) else data[2]
-                handle_position = data[3][0] if isinstance(data[3], list) else data[3]
-                seat_position = data[4][0] if isinstance(data[4], list) else data[4]
+                left_foot_voltage = data[0][0] if isinstance(data[0], list) else data[0]
+                right_foot_voltage = data[1][0] if isinstance(data[1], list) else data[1]
+                handle_force_voltage = data[2][0] if isinstance(data[2], list) else data[2]
+                handle_position_voltage = data[3][0] if isinstance(data[3], list) else data[3]
+                seat_position_voltage = data[4][0] if isinstance(data[4], list) else data[4]
                 
-                self.pos = seat_position * 100  # Back potentiometer (ai22) - seat position
+                # Estimate sampling rate from timing
+                current_time = time.time()
+                if not hasattr(self, 'temp_time') or not self.temp_time:
+                    self.temp_time = []
+                self.temp_time.append(current_time)
                 
-                self.raw_seat_pos.append(self.pos)  # Back potentiometer (ai22)
-                self.handle_position.append(handle_position)  # Front potentiometer (ai21)
-                self.handle_force.append(self._convert_handle_force_voltage(handle_force))  # Handle force sensor (ai20)
-                self.L_foot_force.append(left_foot)  # Left foot force (ai16)
-                self.R_foot_force.append(right_foot)  # Right foot force (ai18)
-                # Note: switch_press removed - no switch sensor in new mapping
-                self.temp_time.append(time.time())
+                # Update sampling rate estimate (use last 10 samples)
+                if len(self.temp_time) > 1:
+                    recent_intervals = []
+                    for i in range(max(1, len(self.temp_time) - 10), len(self.temp_time)):
+                        if i > 0:
+                            dt = self.temp_time[i] - self.temp_time[i-1]
+                            if dt > 0:
+                                recent_intervals.append(dt)
+                    if recent_intervals:
+                        avg_interval = sum(recent_intervals) / len(recent_intervals)
+                        if avg_interval > 0:
+                            self.hardware_sampling_rate = 1.0 / avg_interval
+                
+                # Process hardware data using the same method as CSV playback
+                # This applies Butterworth filter, converts to physical units, and zero-shifts
+                handle_force_N, handle_position_mm, seat_position_mm = self._process_hardware_data(
+                    handle_force_voltage, handle_position_voltage, seat_position_voltage
+                )
+                
+                # Store processed values (same format as CSV playback)
+                self.L_foot_force.append(left_foot_voltage)  # Store raw voltage for foot sensors
+                self.R_foot_force.append(right_foot_voltage)  # Store raw voltage for foot sensors
+                self.handle_force.append(handle_force_N)  # Processed force in Newtons
+                self.handle_position.append(handle_position_mm)  # Processed position in mm
+                self.raw_seat_pos.append(seat_position_mm)  # Processed seat position in mm (for compatibility)
+                self.seat_position_mm.append(seat_position_mm)  # Store explicitly in mm (already zero-shifted)
+                
+                # Calculate release and press positions for hardware mode
+                # Use calibration values (front_max_pos, back_max_pos) to determine max seat position
+                # Since seat_position_mm is zero-shifted, max = calibrated range = front_max_pos - back_max_pos
+                # Calibration data is required for hardware mode (checked in detect_and_set_mode)
+                if self.front_max_pos > self.back_max_pos:
+                    # Use calibrated range as max seat position (after zero-shifting)
+                    max_seat_calibrated = self.front_max_pos - self.back_max_pos
+                    self.seat_position_release = max_seat_calibrated * 0.15
+                    self.seat_position_press = max_seat_calibrated - 140
+                else:
+                    # This should not happen if calibration check worked, but handle gracefully
+                    # Use a default calculation based on current data
+                    if len(self.seat_position_mm) >= 10:
+                        import numpy as np
+                        seat_array = np.array(self.seat_position_mm)
+                        max_seat = np.max(seat_array)
+                        self.seat_position_release = max_seat * 0.15
+                        self.seat_position_press = max_seat - 140
+                    else:
+                        # Not enough data yet, use defaults
+                        self.seat_position_release = 0.0
+                        self.seat_position_press = 100.0
+                
+                # Convert to 0-100 scale for compatibility (using processed mm values)
+                if self.raw_seat_pos:
+                    # Note: The 0-100 scale conversion may need calibration adjustment
+                    # For now, use the same conversion as before but with mm values
+                    if self.raw_seat_pos[-1] <= self.back_max_pos:
+                        self.raw_seat_pos[-1] = self.back_max_pos
+                    elif self.raw_seat_pos[-1] >= self.front_max_pos:
+                        self.raw_seat_pos[-1] = self.front_max_pos
+                    self.converted_seat_position.append(self.convert_raw_to_scale(self.raw_seat_pos[-1]))
+                
                 self.hardware_connected = True
 
-                # update power (need to verify)
-                if len(self.raw_seat_pos) > 1 and hasattr(self, 'temp_time'):
-                    self.temp_power.append(((self.handle_force[-1]+self.handle_force[-2])/2)*abs(self.handle_position[-1]-self.handle_position[-2])/(self.temp_time[-1]-self.temp_time[-2]))
-                    self.avg_power.append(sum(self.temp_power)/len(self.temp_power))
+                # Update power using processed values (same formula as CSV playback)
+                if len(self.handle_force) > 1 and len(self.handle_position) > 1 and len(self.temp_time) > 1:
+                    # Power calculation: avg_force * delta_handle / dt / 1000
+                    # handle_force is in N, handle_position is in mm, need to convert mm to m
+                    avg_force = (self.handle_force[-1] + self.handle_force[-2]) / 2.0  # N
+                    delta_handle = abs(self.handle_position[-1] - self.handle_position[-2])  # mm
+                    dt = self.temp_time[-1] - self.temp_time[-2]  # seconds
+                    if dt > 0:
+                        power_val = avg_force * delta_handle / dt / 1000.0  # W (divide by 1000 to convert mm->m)
+                        self.temp_power.append(power_val)
+                        self.avg_power.append(sum(self.temp_power)/len(self.temp_power))
                     
                 return  # Exit early if hardware read was successful
             except Exception as e:
@@ -618,23 +1078,18 @@ class SharedStats:
                 self.hardware_connected = False
                 return  # Do not fall back to simulation
         
-        # If neither CSV playback nor hardware mode is active, no data collection
-        # This ensures only real sensors or CSV playback are used
-        if not self.hardware_mode and not self.anc_playback_mode:
-            return
-        
-        # Initialize temp_time if needed
+        # Simulation mode (always used on macOS, fallback for Windows/Linux, unless CSV playback)
         if not hasattr(self, 'temp_time'):
             self.temp_time = []
         self.temp_time.append(time.time())
 
-        # update stroke rate
-        if self.raw_seat_pos:
-            if self.raw_seat_pos[-1] >= self.front_max_pos:
-                self.stroke_time.append(time.time())
-            if len(self.stroke_time) > 1:
-                self.stroke_duration.append(self.stroke_time[-1] - self.stroke_time[-2])
-                self.stroke_rate.append(60/round(self.stroke_duration[-1]))
+        # # update stroke rate
+        # if self.raw_seat_pos:
+        #     if self.raw_seat_pos[-1] >= self.front_max_pos:
+        #         self.stroke_time.append(time.time())
+        #     if len(self.stroke_time) > 1:
+        #         self.stroke_duration.append(self.stroke_time[-1] - self.stroke_time[-2])
+        #         self.stroke_rate.append(60/round(self.stroke_duration[-1]))
 
         # convert raw seat position to 0-100 scale
         if self.raw_seat_pos:
@@ -652,7 +1107,6 @@ class SharedStats:
         if len(self.switch_press) > 1:
             if self.switch_press[-1] == 5 and self.switch_press[-2] == 0:  # button needs to be held pressed -> 5V
                 self.button_press_seat_pos.append(self.raw_seat_pos[-1])
-                print("button press seat pos", self.button_press_seat_pos[-1])
                 if self.fes_active_pos - 93.3 <= self.button_press_seat_pos[-1] <= self.fes_active_pos + 93.3 and self.is_pressed:
                     self.score += 1
                     #Correct_Sound.play()
@@ -679,7 +1133,7 @@ class SharedStats:
             drag_factor = 120
             
             # Only calculate distance if there's meaningful power (reduce noise)
-            if current_power > 10:  # Minimum 10W to register movement
+            if current_power > 5:  # Minimum 10W to register movement
                 # Distance per time interval based on power
                 # Formula: distance = (power / drag_factor) * time
                 distance_increment = (current_power / drag_factor) * time_delta
@@ -717,25 +1171,6 @@ class SharedStats:
                 print(f"⚠️  Error closing hardware task: {e}")
             finally:
                 self.hardware_task = None
-    
-    def start_csv_playback(self):
-        """Start CSV playback mode - called when game screen starts"""
-        # Only start if hardware mode is disabled and CSV data is available
-        if not self.hardware_mode:
-            try:
-                project_root = os.path.dirname(os.path.dirname(__file__))
-                csv_path = os.path.join(project_root, "Test_Recordings", "hikaru", "sensor_data.csv")
-                if os.path.exists(csv_path):
-                    self.load_sensor_csv(csv_path)
-                    if self.anc_data:
-                        self.anc_playback_mode = True
-                        self.anc_index = 0  # Reset index
-                        self.anc_playback_start_time = None  # Reset start time
-                        print("✅ CSV playback mode enabled")
-                else:
-                    print(f"⚠️  CSV file not found: {csv_path}")
-            except Exception as e:
-                print(f"CSV playback start failed: {e}")
     
     def save_session_summary(self):
         """Save session summary to CSV file (one file per user, append rows)"""
@@ -797,6 +1232,69 @@ class SharedStats:
             "total_distance": total_distance,
             "avg_accuracy": avg_accuracy
         }
+    
+    def export_session_stats(self):
+        """Export session statistics to CSV file when back button is pressed."""
+        try:
+            # Calculate statistics
+            # Total duration (in minutes)
+            total_duration_min = self.time_elapsed if hasattr(self, 'time_elapsed') else (time.time() - self.time_start) / 60.0
+            
+            # Mean power (from avg_power list)
+            if self.avg_power:
+                mean_power = sum(self.avg_power) / len(self.avg_power)
+            else:
+                mean_power = 0.0
+            
+            # Total distance (already stored)
+            total_distance_m = self.total_distance
+            
+            # Accuracy (score / (score + misses) * 100)
+            total_attempts = self.score + self.misses
+            if total_attempts > 0:
+                accuracy = (self.score / total_attempts) * 100.0
+            else:
+                accuracy = 0.0
+            
+            # Create Session_Data directory if it doesn't exist
+            session_dir = os.path.join(os.path.dirname(__file__), "Session_Data")
+            os.makedirs(session_dir, exist_ok=True)
+            
+            # Create filename with timestamp and userID if available
+            timestamp = time.strftime('%Y%m%d_%H%M%S')
+            if self.userID:
+                filename = f"{self.userID}_session_stats_{timestamp}.csv"
+            else:
+                filename = f"session_stats_{timestamp}.csv"
+            
+            session_file = os.path.join(session_dir, filename)
+            
+            # Write CSV file
+            with open(session_file, 'w', newline='') as f:
+                writer = csv.writer(f)
+                # Write header
+                writer.writerow(['Metric', 'Value', 'Unit'])
+                # Write data
+                writer.writerow(['Total Duration', f'{total_duration_min:.2f}', 'minutes'])
+                writer.writerow(['Mean Power', f'{mean_power:.2f}', 'W'])
+                writer.writerow(['Total Distance', f'{total_distance_m:.2f}', 'meters'])
+                writer.writerow(['Accuracy', f'{accuracy:.2f}', '%'])
+                writer.writerow(['Score', self.score, 'count'])
+                writer.writerow(['Misses', self.misses, 'count'])
+                writer.writerow(['Total Attempts', total_attempts, 'count'])
+                # Add user info if available
+                if self.userID:
+                    writer.writerow(['User ID', self.userID, ''])
+                if self.age:
+                    writer.writerow(['Age', self.age, 'years'])
+                if self.height:
+                    writer.writerow(['Height', self.height, 'cm'])
+                if self.weight:
+                    writer.writerow(['Weight', self.weight, 'kg'])
+                writer.writerow(['Timestamp', time.strftime('%Y-%m-%d %H:%M:%S'), ''])
+            
+        except Exception as e:
+            print(f"Failed to export session stats: {e}")
 
 # ------------------------------------------------------------------------------------------------------------
 
@@ -819,9 +1317,9 @@ class SpriteManager:
     def load_palm_tree_sprite(self, scale=1.0):
         """Load palm tree sprite from PNG file"""
         try:
-            # Get the path to the palm_tree.png file in assets/images directory
-            script_dir = os.path.dirname(__file__)
-            palm_tree_path = os.path.join(script_dir, "assets", "images", "palm_tree.png")
+            # Get the path to the palm-tree.png file (in parent directory)
+            script_dir = os.path.dirname(os.path.dirname(__file__))
+            palm_tree_path = os.path.join(script_dir, "palm-tree.png")
             
             # Load the PNG image
             img = Image.open(palm_tree_path)
@@ -848,9 +1346,9 @@ class SpriteManager:
     def load_cloud_sprite(self):
         """Load cloud sprite from PNG file"""
         try:
-            # Get the path to the cloud.png file in assets/images directory
-            script_dir = os.path.dirname(__file__)
-            cloud_path = os.path.join(script_dir, "assets", "images", "cloud.png")
+            # Get the path to the cloud.png file (in parent directory)
+            script_dir = os.path.dirname(os.path.dirname(__file__))
+            cloud_path = os.path.join(script_dir, "cloud.png")
             
             # Load the PNG image
             img = Image.open(cloud_path)
@@ -1113,9 +1611,6 @@ class GamePage(wx.Panel):
         self.timer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self.on_timer, self.timer)
         self.timer.Start(100)
-        
-        # Start CSV playback if not in hardware mode
-        self.shared_state.start_csv_playback()
 
     def on_timer(self, event):
         self.shared_state.update_stats()
@@ -1128,7 +1623,89 @@ class GamePage(wx.Panel):
             if self.shared_state.switch_press:
                 print('switch press', self.shared_state.switch_press[-1])
         
-        # Calculate distance (for hardware and CSV playback modes)
+        # Only simulate data if hardware is not connected and not in CSV playback mode
+        if not self.shared_state.hardware_connected and not getattr(self.shared_state, 'anc_playback_mode', False):
+            # Simulate seat position for FES indicator (no visual seat anymore)
+            if not self.shared_state.raw_seat_pos:
+                self.shared_state.raw_seat_pos.append(self.shared_state.back_max_pos)
+            else:
+                self.shared_state.converted_seat_position.append(self.shared_state.convert_raw_to_scale(self.shared_state.raw_seat_pos[-1]))
+                next_pos = self.shared_state.converted_seat_position[-1] + self.shared_state.seat_direction 
+                self.shared_state.raw_seat_pos.append(self.shared_state.convert_scale_to_raw(next_pos)) 
+                
+                # Simulation logic
+                if next_pos >= 100:
+                    self.shared_state.seat_direction = -3
+                elif next_pos <= 0:
+                    self.shared_state.seat_direction = 3
+                if self.shared_state.is_pressed:
+                    self.shared_state.switch_press.append(5)
+                else:
+                    self.shared_state.switch_press.append(0)
+                
+                self.shared_state.converted_seat_position.append(next_pos)
+            
+            # Generate realistic fake power data (only in simulation mode)
+            import random
+            if not hasattr(self.shared_state, 'temp_time'):
+                self.shared_state.temp_time = []
+            self.shared_state.temp_time.append(time.time())
+            
+            # Add some initial fake data if lists are empty
+            if not self.shared_state.avg_power:
+                # Start with some baseline values
+                initial_power = random.uniform(85, 125)
+                self.shared_state.temp_power.append(initial_power)
+                self.shared_state.avg_power.append(initial_power)
+                self.shared_state.stroke_rate.append(random.uniform(24, 26))
+            
+            # Simulate realistic power output (varies between 50-200W with rowing motion)
+            if self.shared_state.converted_seat_position:
+                current_pos = self.shared_state.converted_seat_position[-1]
+                
+                # Power varies with rowing phase - higher during drive phase (moving toward front)
+                if len(self.shared_state.converted_seat_position) >= 2:
+                    prev_pos = self.shared_state.converted_seat_position[-2]
+                    is_driving = current_pos > prev_pos  # Moving toward front (drive phase)
+                    
+                    if is_driving and current_pos > 50:  # High power during drive phase
+                        base_power = random.uniform(120, 200)
+                    elif is_driving:  # Moderate power during early drive
+                        base_power = random.uniform(80, 150)
+                    else:  # Lower power during recovery phase
+                        base_power = random.uniform(30, 80)
+                    
+                    # Add some random variation
+                    power_variation = random.uniform(-20, 20)
+                    simulated_power = max(0, base_power + power_variation)
+                    
+                    self.shared_state.temp_power.append(simulated_power)
+                    self.shared_state.avg_power.append(sum(self.shared_state.temp_power) / len(self.shared_state.temp_power))
+                    
+                    # Simulate stroke rate (strokes per minute) - typical rowing is 20-35 SPM
+                    if not self.shared_state.stroke_rate:
+                        simulated_stroke_rate = random.uniform(22, 28)  # Start with moderate pace
+                    else:
+                        # Vary stroke rate slightly around current rate
+                        current_rate = self.shared_state.stroke_rate[-1]
+                        rate_change = random.uniform(-2, 2)
+                        simulated_stroke_rate = max(18, min(35, current_rate + rate_change))
+                    
+                    self.shared_state.stroke_rate.append(simulated_stroke_rate)
+            
+            # Generate fake accuracy data (simulate some successful and missed FES activations)
+            if len(self.shared_state.converted_seat_position) > 10:  # Wait a bit before starting accuracy simulation
+                # Randomly simulate button presses at appropriate times
+                if random.random() < 0.05:  # 5% chance per update to simulate a button press
+                    current_pos = self.shared_state.raw_seat_pos[-1] if self.shared_state.raw_seat_pos else 0
+                    
+                    # Simulate success/failure based on timing accuracy (80% success rate)
+                    if random.random() < 0.8:  # 80% success rate
+                        self.shared_state.score += 1
+                    else:
+                        self.shared_state.misses += 1
+        
+        # Calculate realistic distance (for both hardware and simulation mode)
         self.shared_state.calculate_distance()
         
         self.stats_panel.update_stats()
@@ -1147,8 +1724,6 @@ class GamePage(wx.Panel):
         if self.shared_state.anc_playback_mode:
             self.shared_state.anc_index = 0
             self.shared_state.anc_playback_start_time = None
-        # Start CSV playback if not in hardware mode
-        self.shared_state.start_csv_playback()
 
     def on_back_button(self, event):
         self.shared_state.stop_writing_stats()
@@ -2045,6 +2620,7 @@ class ModernFESIndicator(wx.Panel):
         self.SetMinSize((-1, 200))  # Larger minimum height
         self.Bind(wx.EVT_PAINT, self.OnPaint)
         self.previous_position = 0  # Track previous position for direction
+        self.last_progress_color = wx.Colour(158, 158, 158)  # Track last color (default to grey)
         
         # Create sizer with labels
         main_sizer = wx.BoxSizer(wx.VERTICAL)
@@ -2109,69 +2685,137 @@ class ModernFESIndicator(wx.Panel):
         dc.DrawRoundedRectangle(main_bar_x, bar_y, bar_width, bar_height, 25)
         
         # Calculate progress based on seat position
-        # Use ANC percentiles if available, otherwise use 0-100 scale
-        if hasattr(self.shared_state, 'seat_position_p10') and hasattr(self.shared_state, 'seat_position_p90'):
-            # Use ANC-based percentiles with mm position
+        # Map seat position so that release_pos corresponds to left edge and press_pos to right edge
+        if hasattr(self.shared_state, 'seat_position_release') and hasattr(self.shared_state, 'seat_position_press'):
+            # Use release/press positions with mm position
             if self.shared_state.seat_position_mm:
                 current_pos_mm = self.shared_state.seat_position_mm[-1]  # position in mm
-                p10 = self.shared_state.seat_position_p10
-                p90 = self.shared_state.seat_position_p90
+                release_pos = self.shared_state.seat_position_release  # Left edge (RELEASE bar)
+                press_pos = self.shared_state.seat_position_press  # Right edge (PRESS bar)
                 
-                # Map position to 0-1 scale based on percentiles
-                if p90 > p10:
-                    # Map [p10, p90] to [0, 1]
-                    current_progress = (current_pos_mm - p10) / (p90 - p10)
-                    current_progress = max(0.0, min(1.0, current_progress))  # Clamp to [0, 1]
+                # Map position to 0-1 scale: [release_pos, press_pos] -> [0, 1]
+                # Left edge (release_pos) = 0.0, Right edge (press_pos) = 1.0
+                if press_pos > release_pos:
+                    # Calculate raw progress
+                    raw_progress = (current_pos_mm - release_pos) / (press_pos - release_pos)
+                    
+                    # Clip progress at boundaries: stay at 0 when below release_pos, stay at 1 when above press_pos
+                    # This keeps the bar visually clipped at the edges until seat returns to range
+                    if current_pos_mm < release_pos:
+                        # Seat is to the left of release position - clip at left boundary (0.0)
+                        current_progress = 0.0
+                    elif current_pos_mm > press_pos:
+                        # Seat is to the right of press position - clip at right boundary (1.0)
+                        current_progress = 1.0
+                    else:
+                        # Seat is within range [release_pos, press_pos] - use calculated progress
+                        current_progress = raw_progress
                 else:
                     current_progress = 0.0
             else:
                 current_progress = 0.0
         else:
             # Fallback to 0-100 scale
+            # Map [back_max_pos, front_max_pos] to [0, 1]
+            # Where 0 = back (release) and 100 = front (press)
             if self.shared_state.converted_seat_position:
                 current_progress = self.shared_state.converted_seat_position[-1] / 100.0
             else:
                 current_progress = 0.0
         
-        # Determine direction and color
-        if len(self.shared_state.converted_seat_position) >= 2:
-            current_pos = self.shared_state.converted_seat_position[-1]
-            prev_pos = self.shared_state.converted_seat_position[-2]
-            moving_right = current_pos > prev_pos  # Moving towards push (right)
-            moving_left = current_pos < prev_pos   # Moving towards release (left)
+        # Determine direction and color based on position relative to release/press
+        # When outside range, use appropriate color to indicate target direction
+        if hasattr(self.shared_state, 'seat_position_release') and hasattr(self.shared_state, 'seat_position_press'):
+            if self.shared_state.seat_position_mm:
+                current_pos_mm = self.shared_state.seat_position_mm[-1]
+                release_pos = self.shared_state.seat_position_release
+                press_pos = self.shared_state.seat_position_press
+                
+                if current_pos_mm < release_pos:
+                    # Before release position: moving towards press, use release color (orange)
+                    progress_color = wx.Colour(255, 152, 0)  # Orange (release)
+                    self.last_progress_color = progress_color
+                elif current_pos_mm > press_pos:
+                    # After press position: moving towards release, use press color (green)
+                    progress_color = wx.Colour(76, 175, 80)  # Green (press)
+                    self.last_progress_color = progress_color
+                else:
+                    # Within range: determine direction from movement
+                    if len(self.shared_state.converted_seat_position) >= 2:
+                        current_pos = self.shared_state.converted_seat_position[-1]
+                        prev_pos = self.shared_state.converted_seat_position[-2]
+                        moving_right = current_pos > prev_pos  # Moving towards push (right)
+                        moving_left = current_pos < prev_pos   # Moving towards release (left)
+                    else:
+                        moving_right = False
+                        moving_left = False
+                    
+                    # Color logic: Green when moving left, Orange when moving right
+                    # Keep previous color when stationary
+                    if moving_left:
+                        progress_color = wx.Colour(76, 175, 80)  # Green
+                        self.last_progress_color = progress_color
+                    elif moving_right:
+                        progress_color = wx.Colour(255, 152, 0)  # Orange
+                        self.last_progress_color = progress_color
+                    else:
+                        # Use last color when stationary
+                        progress_color = self.last_progress_color
+            else:
+                # No position data, use last color or default grey
+                progress_color = self.last_progress_color
         else:
-            moving_right = False
-            moving_left = False
+            # Fallback: determine direction from converted position
+            if len(self.shared_state.converted_seat_position) >= 2:
+                current_pos = self.shared_state.converted_seat_position[-1]
+                prev_pos = self.shared_state.converted_seat_position[-2]
+                moving_right = current_pos > prev_pos
+                moving_left = current_pos < prev_pos
+            else:
+                moving_right = False
+                moving_left = False
+            
+            if moving_left:
+                progress_color = wx.Colour(76, 175, 80)  # Green
+                self.last_progress_color = progress_color
+            elif moving_right:
+                progress_color = wx.Colour(255, 152, 0)  # Orange
+                self.last_progress_color = progress_color
+            else:
+                progress_color = self.last_progress_color
         
-        # Color logic: Green when moving left, Orange when moving right
-        if moving_left:
-            progress_color = wx.Colour(76, 175, 80)  # Green
-        elif moving_right:
-            progress_color = wx.Colour(255, 152, 0)  # Orange
-        else:
-            progress_color = wx.Colour(158, 158, 158)  # Gray when stationary
-        
-        # Draw progress fill (in the middle section)
+        # Draw progress fill only in the middle section (not covering RELEASE/PRESS labels)
+        # Map progress [0, 1] to middle section width only
         progress_width = int(bar_width * current_progress)
         if progress_width > 0:
             dc.SetBrush(wx.Brush(progress_color))
-            dc.DrawRoundedRectangle(main_bar_x, bar_y, progress_width, bar_height, 25)
+            # Start from the left edge of middle section (after RELEASE bar)
+            progress_start_x = main_bar_x
+            dc.DrawRoundedRectangle(progress_start_x, bar_y, progress_width, bar_height, 25)
         
         # Add labels for the end bars
         dc.SetTextForeground(wx.Colour(255, 255, 255))  # White text
         dc.SetFont(wx.Font(16, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
         
-        # Release label (horizontal, centered in left bar)
-        release_text_width, release_text_height = dc.GetTextExtent("RELEASE")
+        # Determine label text based on mode
+        if hasattr(self.shared_state, 'is_automatic_mode') and self.shared_state.is_automatic_mode:
+            left_label = "ACTIVATE"
+            right_label = "ACTIVATE"
+        else:
+            left_label = "RELEASE"
+            right_label = "PRESS"
+        
+        # Release/Activate label (horizontal, centered in left bar)
+        release_text_width, release_text_height = dc.GetTextExtent(left_label)
         release_x = bar_padding + (end_bar_width - release_text_width) // 2
         release_y = bar_y + (bar_height - release_text_height) // 2
-        dc.DrawText("RELEASE", release_x, release_y)
+        dc.DrawText(left_label, release_x, release_y)
         
-        # Press label (horizontal, centered in right bar)
-        press_text_width, press_text_height = dc.GetTextExtent("PRESS")
+        # Press/Activate label (horizontal, centered in right bar)
+        press_text_width, press_text_height = dc.GetTextExtent(right_label)
         press_x = bar_padding + end_bar_width + bar_width + (end_bar_width - press_text_width) // 2
         press_y = bar_y + (bar_height - press_text_height) // 2
-        dc.DrawText("PRESS", press_x, press_y)
+        dc.DrawText(right_label, press_x, press_y)
 
     def update_indicator(self):
         self.Refresh()
@@ -2179,6 +2823,7 @@ class ModernFESIndicator(wx.Panel):
     def reset(self):
         self.shared_state.is_pressed = False
         self.shared_state.loading_phase = 0
+        self.last_progress_color = wx.Colour(158, 158, 158)  # Reset to grey
         self.Refresh()
 
 # ------------------------------------------------------------------------------------------------------------

@@ -135,6 +135,13 @@ class StartPage(wx.Panel):
 
     def on_start_game(self, event):
         parent = self.GetParent()
+        
+        # Determine which card was clicked and set automatic/manual mode
+        clicked_card = event.GetEventObject()
+        if clicked_card == self.auto_card:
+            parent.game_page.shared_state.is_automatic_mode = True
+        elif clicked_card == self.manual_card:
+            parent.game_page.shared_state.is_automatic_mode = False
 
         parent.game_page.shared_state.stop_writing_stats()
         parent.game_page.shared_state.create_stats_file()
