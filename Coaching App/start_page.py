@@ -143,9 +143,6 @@ class StartPage(wx.Panel):
         elif clicked_card == self.manual_card:
             parent.game_page.shared_state.is_automatic_mode = False
 
-        parent.game_page.shared_state.stop_writing_stats()
-        parent.game_page.shared_state.create_stats_file()
-
         parent.game_page.reset_game()
         parent.switch_to_game_page()
     

@@ -434,14 +434,9 @@ class SharedStats:
         return user_dir
         
     def create_stats_file(self):
-        filename = f"rowing_stats_{time.strftime('%Y%m%d_%H%M%S')}.csv"
-        # Use user-specific data directory
-        training_data_dir = self.get_user_data_dir()
-        self.stats_file_path = os.path.join(training_data_dir, filename)
-        
-        with open(self.stats_file_path, 'w', newline='') as file:
-            writer = csv.writer(file)
-            writer.writerow(["Time Elapsed (min)", "Stroke Rate", "Average Power", "Score", "Misses", "Handle Force (ai20)", "Handle Position (ai21)", "Raw Seat Position (ai22)", "Converted Seat Position", "Left Foot Force (ai16)", "Right Foot Force (ai18)"])
+        """Disabled - no longer creating rowing stats files, only session summaries"""
+        # Do nothing - rowing stats files are no longer needed
+        pass
 
     def load_sensor_csv(self, file_path):
         """Load sensor playback data from a CSV file with columns:
@@ -1114,8 +1109,6 @@ class SharedStats:
                     self.misses += 1
                     #Wrong_Sound.play()
             self.same_stroke = True
-        
-        self.write_stats_to_file()
     
     def calculate_distance(self):
         """Calculate realistic rowing distance based on power and time"""
@@ -1140,23 +1133,9 @@ class SharedStats:
                 self.total_distance += distance_increment
 
     def write_stats_to_file(self):
-        if self.stats_file_path:
-            with open(self.stats_file_path, 'a', newline='') as file:
-                writer = csv.writer(file)
-                writer.writerow([
-                    f"{self.time_elapsed:.2f}",
-                    self.stroke_rate[-1] if self.stroke_rate else 0,
-                    self.avg_power[-1] if self.avg_power else 0,
-                    self.score,
-                    self.misses,
-                    self.handle_force[-1] if self.handle_force else 0,
-                    self.handle_position[-1] if self.handle_position else 0,
-                    self.raw_seat_pos[-1] if self.raw_seat_pos else 0,
-                    self.converted_seat_position[-1] if self.converted_seat_position else 0,
-                    self.L_foot_force[-1] if self.L_foot_force else 0,
-                    self.R_foot_force[-1] if self.R_foot_force else 0
-                    # add in names for everything after misses
-                ])
+        """Disabled - no longer writing rowing stats files, only session summaries"""
+        # Do nothing - rowing stats files are no longer needed
+        pass
     
     def stop_writing_stats(self):
         self.stats_file_path = None
@@ -1176,6 +1155,11 @@ class SharedStats:
         """Save session summary to CSV file (one file per user, append rows)"""
         # Calculate final metrics
         total_time_minutes = self.time_elapsed
+        
+        # Convert time to MM:SS format
+        minutes = int(total_time_minutes)
+        seconds = int((total_time_minutes - minutes) * 60)
+        time_str = f"{minutes}:{seconds:02d}"  # Format as MM:SS (e.g., 0:04, 1:23)
         
         # Average power: average of all avg_power values
         if self.avg_power:
@@ -1201,25 +1185,25 @@ class SharedStats:
         # Check if file exists to determine if we need to write headers
         file_exists = os.path.exists(file_path)
         
-        # Get current timestamp
-        timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
+        # Get current date (date only, no time)
+        date_str = time.strftime('%Y-%m-%d')
         
         # Write to CSV (append mode)
         with open(file_path, 'a', newline='') as file:
             writer = csv.writer(file)
             
-            # Write header if file is new
+            # Write header if file is new - column order: date, name, total time, average power, total distance, average accuracy
             if not file_exists:
-                writer.writerow(["User Name", "Total Time (min)", "Average Power (W)", "Total Distance (m)", "Average Accuracy (%)", "Date/Time"])
+                writer.writerow(["Date", "Name", "Total Time (min:sec)", "Average Power (W)", "Total Distance (m)", "Average Accuracy (%)"])
             
-            # Write session data
+            # Write session data in the correct order
             writer.writerow([
-                self.user_name,
-                f"{total_time_minutes:.2f}",
-                f"{avg_power:.2f}",
-                f"{total_distance:.2f}",
-                f"{avg_accuracy:.2f}",
-                timestamp
+                date_str,  # Date (date only)
+                self.user_name,  # Name
+                time_str,  # Total Time in MM:SS format
+                f"{avg_power:.2f}",  # Average Power
+                f"{total_distance:.2f}",  # Total Distance
+                f"{avg_accuracy:.2f}"  # Average Accuracy
             ])
         
         print(f"✅ Session summary saved to: {file_path}")

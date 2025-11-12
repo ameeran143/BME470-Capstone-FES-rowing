@@ -62,6 +62,9 @@ class MainFrame(wx.Frame):
 
     def switch_to_start_page(self):
         self.current_panel.Hide()
+        # Hide summary page if it exists
+        if self.summary_page is not None:
+            self.summary_page.Hide()
         self.start_page.Show()
         self.current_panel = self.start_page
         self.start_page.manual_button.Enable()
@@ -71,6 +74,9 @@ class MainFrame(wx.Frame):
     
     def switch_to_game_page(self):
         self.current_panel.Hide()
+        # Hide summary page if it exists
+        if self.summary_page is not None:
+            self.summary_page.Hide()
         self.game_page.Show()
         self.current_panel = self.game_page
         self.Refresh()
@@ -85,15 +91,23 @@ class MainFrame(wx.Frame):
     
     def switch_to_summary_page(self, summary_data):
         """Switch to session summary page with summary data"""
-        # Create summary page if it doesn't exist or recreate it
-        if self.summary_page is not None:
-            self.sizer.Remove(self.summary_page)
-            self.summary_page.Destroy()
+        # Hide current panel first
+        self.current_panel.Hide()
         
+        # Clean up old summary page if it exists
+        if self.summary_page is not None:
+            try:
+                self.sizer.Remove(self.summary_page)
+                self.summary_page.Destroy()
+            except:
+                pass  # If already destroyed, ignore
+            self.summary_page = None
+        
+        # Create new summary page
         self.summary_page = SessionSummaryPage(self, summary_data)
         self.sizer.Add(self.summary_page, 1, wx.EXPAND)
         
-        self.current_panel.Hide()
+        # Show summary page
         self.summary_page.Show()
         self.current_panel = self.summary_page
         self.Refresh()
