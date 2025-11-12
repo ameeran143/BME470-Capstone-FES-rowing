@@ -1,7 +1,7 @@
 # main
 import wx
 from start_page import StartPage
-from calib_page_new import CalibPage
+from calib_page import CalibPage
 from game_page import GamePage
 from game_page import SharedStats
 from instructions import InstructionsPage
