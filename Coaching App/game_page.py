@@ -131,7 +131,7 @@ class SharedStats:
         # None = automatic (switches to Japan after 30 minutes)
         # "Hawaii" = force Hawaii location
         # "Japan" = force Japan location
-        self.location_override = "Hawaii"  # Set to "Japan", "Antarctica", "Amazon", "Australia" or "Hawaii" for manual control, None for auto
+        self.location_override = "Japan"  # Set to "Japan", "Antarctica", "Amazon", "Australia" or "Hawaii" for manual control, None for auto
         self.current_location = "Hawaii"  # Current location name (updated by RowingScenePanel)
         
         # Don't auto-detect mode here - wait until game page is activated
@@ -1463,8 +1463,8 @@ class SpriteManager:
     def load_cloud_sprite(self):
         """Load cloud sprite from PNG file"""
         try:
-            # Get the path to the cloud.png file (in parent directory)
-            script_dir = os.path.dirname(os.path.dirname(__file__))
+            # Get the path to the cloud.png file (in assets/images directory)
+            script_dir = os.path.dirname(__file__)
             cloud_path = os.path.join(script_dir, "assets", "images", "cloud.png")
             
             # Load the PNG image
