@@ -87,14 +87,21 @@ class StartPage(wx.Panel):
 
         main_sizer = wx.BoxSizer(wx.VERTICAL)
         
-        main_sizer.AddSpacer(50)
-
-        # Title: "Select Mode" - more elegant
-        title = wx.StaticText(self, label="Select Mode")
+        # Create header panel for absolute title positioning
+        header_panel = wx.Panel(self)
+        header_panel.SetBackgroundColour(self.GetBackgroundColour())
+        header_panel.SetMinSize((-1, 100))
+        
+        # Title: "Select Mode" - centered on screen using absolute positioning
+        self.title = wx.StaticText(header_panel, label="Select Mode")
         title_font = wx.Font(78, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
-        title.SetFont(title_font)
-        title.SetForegroundColour(wx.Colour(33, 37, 41))
-        main_sizer.Add(title, 0, wx.ALIGN_CENTER | wx.ALL, 40)
+        self.title.SetFont(title_font)
+        self.title.SetForegroundColour(wx.Colour(33, 37, 41))
+        
+        # Bind size event to center the title
+        header_panel.Bind(wx.EVT_SIZE, self.on_header_size)
+        
+        main_sizer.Add(header_panel, 0, wx.EXPAND | wx.TOP, 50)
 
         # 2x2 grid of modern card buttons
         grid_sizer = wx.FlexGridSizer(2, 2, 40, 40)
@@ -132,6 +139,43 @@ class StartPage(wx.Panel):
         main_sizer.Add(bottom_bar, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
 
         self.SetSizer(main_sizer)
+        
+        # Bind size event to ensure layout recalculates when shown
+        self.Bind(wx.EVT_SIZE, self.OnSize)
+        
+        # Trigger initial centering after layout
+        wx.CallAfter(self.center_title)
+    
+    def center_title(self):
+        """Center the title exactly on screen"""
+        if not hasattr(self, 'title'):
+            return
+        
+        # Get the header panel
+        header_panel = self.title.GetParent()
+        if not header_panel:
+            return
+            
+        width, height = header_panel.GetSize()
+        if width <= 0 or height <= 0:
+            return
+        
+        # Center the title EXACTLY on screen (screen center)
+        title_width, title_height = self.title.GetSize()
+        title_x = (width - title_width) // 2  # Exact center of screen
+        title_y = (height - title_height) // 2  # Vertical center
+        self.title.SetPosition((title_x, title_y))
+    
+    def on_header_size(self, event):
+        """Handle header panel size event to center the title"""
+        self.center_title()
+        event.Skip()
+    
+    def OnSize(self, event):
+        """Handle size event to ensure proper layout"""
+        if self.GetSizer():
+            self.Layout()
+        event.Skip()
 
     def on_start_game(self, event):
         parent = self.GetParent()
@@ -160,5 +204,5 @@ class StartPage(wx.Panel):
             wx.MessageBox("Tutorial coming soon.", "Info")
 
     def on_user_dashboard(self, event):
-        # Placeholder – no dashboard implemented yet
-        wx.MessageBox("User Dashboard not available yet.", "Info")
+        parent = self.GetParent()
+        parent.switch_to_dashboard()

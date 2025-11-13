@@ -76,7 +76,7 @@ class SharedStats:
         self.seat_direction = 0  # fake data
         self.converted_fes_pos = 100 - (self.fes_active_pos - self.front_max_pos) / (self.back_max_pos - self.front_max_pos) * 100
         self.userID = None
-        self.user_name = "Alex Johnson"  # Default fictitious user name
+        self.user_name = "demo"  # Default demo user name
         self.age = 0
         self.height = 0
         self.weight = 0
@@ -127,35 +127,9 @@ class SharedStats:
         # Hardware task for persistent connection (B - from game_page.py)
         self.hardware_task = None  # Persistent task for sensor readings
         
-        # Auto-detect and set mode first
-        self.detect_and_set_mode()
-        
-        # Initialize hardware task if in hardware mode (after mode detection)
-        if self.hardware_mode:
-            try:
-                self.hardware_task = nidaqmx.Task()
-                # Configure channels with RSE terminal configuration and 0-10V range (matching hardware_test_safe.py)
-                self.hardware_task.ai_channels.add_ai_voltage_chan("Dev2/ai16",
-                                                                   terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
-                                                                   min_val=0.0, max_val=10.0)   # Left Foot Force
-                self.hardware_task.ai_channels.add_ai_voltage_chan("Dev2/ai18",
-                                                                   terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
-                                                                   min_val=0.0, max_val=10.0)   # Right Foot Force
-                self.hardware_task.ai_channels.add_ai_voltage_chan("Dev2/ai20",
-                                                                   terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
-                                                                   min_val=0.0, max_val=10.0)   # Handle Force
-                self.hardware_task.ai_channels.add_ai_voltage_chan("Dev2/ai21",
-                                                                   terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
-                                                                   min_val=0.0, max_val=10.0)   # Handle Position
-                self.hardware_task.ai_channels.add_ai_voltage_chan("Dev2/ai22",
-                                                                   terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
-                                                                   min_val=0.0, max_val=10.0)   # Seat Position
-                print("✅ Hardware task configured with RSE (Referenced Single-Ended) terminal configuration")
-                print("   Voltage range: 0.0V to 10.0V (matching hardware_test_safe.py configuration)")
-            except Exception as e:
-                print(f"❌ Failed to initialize hardware task: {e}")
-                print("   Sensor mode will not be available")
-                self.hardware_task = None
+        # Don't auto-detect mode here - wait until game page is activated
+        # Mode will be detected when reset_game() is called
+        # Hardware task initialization will happen after mode detection in reset_game()
     
     def test_hardware_connection(self):
         """Test if NI-DAQ device is connected and responsive"""
@@ -1698,6 +1672,36 @@ class GamePage(wx.Panel):
         self.fes_indicator_panel.update_indicator()
     
     def reset_game(self):
+        # Detect and set mode when game page is activated (only if not already set)
+        if self.shared_state.current_mode is None:
+            self.shared_state.detect_and_set_mode()
+            # Initialize hardware task if in hardware mode (after mode detection)
+            if self.shared_state.hardware_mode and self.shared_state.hardware_task is None:
+                try:
+                    self.shared_state.hardware_task = nidaqmx.Task()
+                    # Configure channels with RSE terminal configuration and 0-10V range (matching hardware_test_safe.py)
+                    self.shared_state.hardware_task.ai_channels.add_ai_voltage_chan("Dev2/ai16",
+                                                                                   terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
+                                                                                   min_val=0.0, max_val=10.0)   # Left Foot Force
+                    self.shared_state.hardware_task.ai_channels.add_ai_voltage_chan("Dev2/ai18",
+                                                                                   terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
+                                                                                   min_val=0.0, max_val=10.0)   # Right Foot Force
+                    self.shared_state.hardware_task.ai_channels.add_ai_voltage_chan("Dev2/ai20",
+                                                                                   terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
+                                                                                   min_val=0.0, max_val=10.0)   # Handle Force
+                    self.shared_state.hardware_task.ai_channels.add_ai_voltage_chan("Dev2/ai21",
+                                                                                   terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
+                                                                                   min_val=0.0, max_val=10.0)   # Front Potentiometer (Handle Position)
+                    self.shared_state.hardware_task.ai_channels.add_ai_voltage_chan("Dev2/ai22",
+                                                                                   terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
+                                                                                   min_val=0.0, max_val=10.0)   # Back Potentiometer (Seat Position)
+                    self.shared_state.hardware_task.timing.cfg_samp_clk_timing(rate=1000.0, sample_mode=nidaqmx.constants.AcquisitionType.CONTINUOUS)
+                    self.shared_state.hardware_task.start()
+                    print("Hardware task initialized successfully")
+                except Exception as e:
+                    print(f"Failed to initialize hardware task: {e}")
+                    self.shared_state.hardware_mode = False
+        
         self.stats_panel.reset()
         self.rowing_scene_panel.reset()
         self.fes_indicator_panel.reset()

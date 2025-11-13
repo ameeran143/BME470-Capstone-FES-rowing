@@ -6,6 +6,7 @@ from game_page import GamePage
 from game_page import SharedStats
 from instructions import InstructionsPage
 from session_summary import SessionSummaryPage
+from dashboard import DashboardPage
 
 class RowingApp(wx.App):
     def OnInit(self):
@@ -34,24 +35,27 @@ class MainFrame(wx.Frame):
         self.Centre()
         
         self.sizer = wx.BoxSizer(wx.VERTICAL)
+        self.dashboard_page = DashboardPage(self)
         self.start_page = StartPage(self)
         self.calib_page = CalibPage(self, self.shared_state)
         self.game_page = GamePage(self, self.shared_state)
         self.instructions_page = InstructionsPage(self)
         self.summary_page = None  # Will be created when needed
         
+        self.sizer.Add(self.dashboard_page, 1, wx.EXPAND)
         self.sizer.Add(self.start_page, 1, wx.EXPAND)
         self.sizer.Add(self.calib_page, 1, wx.EXPAND)
         self.sizer.Add(self.game_page, 1, wx.EXPAND)
         self.sizer.Add(self.instructions_page, 1, wx.EXPAND)
         
+        self.start_page.Hide()
         self.calib_page.Hide()
         self.game_page.Hide()
         self.instructions_page.Hide()
         
         self.SetSizer(self.sizer)
         
-        self.current_panel = self.start_page
+        self.current_panel = self.dashboard_page
 
     def switch_to_calib_page(self):
         self.current_panel.Hide()
@@ -60,15 +64,40 @@ class MainFrame(wx.Frame):
         self.Refresh()
         self.Layout()
 
+    def switch_to_dashboard(self):
+        """Switch to dashboard page"""
+        self.current_panel.Hide()
+        # Hide summary page if it exists
+        if self.summary_page is not None:
+            self.summary_page.Hide()
+        self.dashboard_page.Show()
+        self.current_panel = self.dashboard_page
+        self.Refresh()
+        self.Layout()
+    
     def switch_to_start_page(self):
         self.current_panel.Hide()
         # Hide summary page if it exists
         if self.summary_page is not None:
             self.summary_page.Hide()
+        
+        # Force start page to get correct size before showing
+        client_size = self.GetClientSize()
+        self.start_page.SetSize(client_size)
+        
         self.start_page.Show()
         self.current_panel = self.start_page
         self.start_page.manual_button.Enable()
         #self.start_page.auto_button.Enable()
+        
+        # Force layout recalculation
+        self.start_page.Layout()
+        self.start_page.Refresh()
+        
+        # Send a size event to force proper layout
+        size_event = wx.SizeEvent(self.start_page.GetSize())
+        wx.PostEvent(self.start_page, size_event)
+        
         self.Refresh()
         self.Layout()
     
