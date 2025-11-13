@@ -127,6 +127,13 @@ class SharedStats:
         # Hardware task for persistent connection (B - from game_page.py)
         self.hardware_task = None  # Persistent task for sensor readings
         
+        # Location override for manual control or automatic switching
+        # None = automatic (switches to Japan after 30 minutes)
+        # "Hawaii" = force Hawaii location
+        # "Japan" = force Japan location
+        self.location_override = "Hawaii"  # Set to "Japan", "Antarctica", "Amazon", "Australia" or "Hawaii" for manual control, None for auto
+        self.current_location = "Hawaii"  # Current location name (updated by RowingScenePanel)
+        
         # Don't auto-detect mode here - wait until game page is activated
         # Mode will be detected when reset_game() is called
         # Hardware task initialization will happen after mode detection in reset_game()
@@ -406,6 +413,30 @@ class SharedStats:
         user_dir = os.path.join(base_dir, safe_name)
         os.makedirs(user_dir, exist_ok=True)
         return user_dir
+    
+    def get_cumulative_total_distance(self):
+        """Calculate cumulative total distance across all sessions for the current user"""
+        data_dir = self.get_user_data_dir()
+        csv_file = os.path.join(data_dir, "session_summary.csv")
+        
+        cumulative_distance = 0.0
+        
+        if os.path.exists(csv_file):
+            try:
+                with open(csv_file, 'r', newline='') as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        try:
+                            # Get distance from "Total Distance (m)" column
+                            distance = float(row.get("Total Distance (m)", "0"))
+                            cumulative_distance += distance
+                        except (ValueError, KeyError):
+                            # Skip rows with invalid distance data
+                            continue
+            except Exception as e:
+                print(f"Error reading session summary CSV: {e}")
+        
+        return cumulative_distance
         
     def create_stats_file(self):
         """Disabled - no longer creating rowing stats files, only session summaries"""
@@ -1268,6 +1299,18 @@ class SpriteManager:
         # Load palm tree sprite from PNG file
         self.sprites['palm_tree'] = self.load_palm_tree_sprite()
         self.sprites['palm_tree_small'] = self.load_palm_tree_sprite(scale=0.7)
+        # Load cherry blossom sprite from PNG file
+        self.sprites['cherry_blossom'] = self.load_cherry_blossom_sprite()
+        self.sprites['cherry_blossom_small'] = self.load_cherry_blossom_sprite(scale=0.7)
+        # Load penguin sprite from PNG file (scaled to 1/2 size - 2x the 1/4 size)
+        self.sprites['penguin'] = self.load_penguin_sprite(scale=0.5)
+        self.sprites['penguin_small'] = self.load_penguin_sprite(scale=0.35)  # 0.175 * 2 = 0.35
+        # Load jungle sprite from PNG file
+        self.sprites['jungle'] = self.load_jungle_sprite()
+        self.sprites['jungle_small'] = self.load_jungle_sprite(scale=0.7)
+        # Load kangaroo sprite from PNG file (scaled to 1/2 size)
+        self.sprites['kangaroo'] = self.load_kangaroo_sprite(scale=0.5)
+        self.sprites['kangaroo_small'] = self.load_kangaroo_sprite(scale=0.35)  # 0.7 * 0.5 = 0.35
         # Load cloud sprite from PNG file
         self.sprites['cloud'] = self.load_cloud_sprite()
         self.sprites['boat'] = self.create_boat_sprite()
@@ -1301,12 +1344,128 @@ class SpriteManager:
             # Fallback to programmatically generated palm tree
             return self.create_palm_tree_sprite(scale)
     
+    def load_cherry_blossom_sprite(self, scale=1.0):
+        """Load cherry blossom sprite from PNG file"""
+        try:
+            # Get the path to the cherryblossom.png file (in assets/images directory)
+            script_dir = os.path.dirname(__file__)
+            cherry_blossom_path = os.path.join(script_dir, "assets", "images", "cherryblossom.png")
+            
+            # Load the PNG image
+            img = Image.open(cherry_blossom_path)
+            
+            # Convert to RGBA if not already
+            if img.mode != 'RGBA':
+                img = img.convert('RGBA')
+            
+            # Scale down the image to match the programmatic palm tree size
+            # The programmatic version was 80x140, so we scale the PNG to approximately that size
+            target_height = int(140 * scale)
+            # Calculate width to maintain aspect ratio
+            aspect_ratio = img.width / img.height
+            target_width = int(target_height * aspect_ratio)
+            
+            img = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
+            
+            return self.pil_to_wx_bitmap(img)
+        except Exception as e:
+            print(f"Error loading cherry blossom PNG: {e}")
+            # Fallback to programmatically generated palm tree (as placeholder)
+            return self.create_palm_tree_sprite(scale)
+    
+    def load_penguin_sprite(self, scale=1.0):
+        """Load penguin sprite from PNG file"""
+        try:
+            # Get the path to the penguin.png file (in assets/images directory)
+            script_dir = os.path.dirname(__file__)
+            penguin_path = os.path.join(script_dir, "assets", "images", "penguin.png")
+            
+            # Load the PNG image
+            img = Image.open(penguin_path)
+            
+            # Convert to RGBA if not already
+            if img.mode != 'RGBA':
+                img = img.convert('RGBA')
+            
+            # Scale down the image to match the programmatic palm tree size
+            # The programmatic version was 80x140, so we scale the PNG to approximately that size
+            target_height = int(140 * scale)
+            # Calculate width to maintain aspect ratio
+            aspect_ratio = img.width / img.height
+            target_width = int(target_height * aspect_ratio)
+            
+            img = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
+            
+            return self.pil_to_wx_bitmap(img)
+        except Exception as e:
+            print(f"Error loading penguin PNG: {e}")
+            # Fallback to programmatically generated palm tree (as placeholder)
+            return self.create_palm_tree_sprite(scale)
+    
+    def load_jungle_sprite(self, scale=1.0):
+        """Load jungle sprite from PNG file"""
+        try:
+            # Get the path to the jungle.png file (in assets/images directory)
+            script_dir = os.path.dirname(__file__)
+            jungle_path = os.path.join(script_dir, "assets", "images", "jungle.png")
+            
+            # Load the PNG image
+            img = Image.open(jungle_path)
+            
+            # Convert to RGBA if not already
+            if img.mode != 'RGBA':
+                img = img.convert('RGBA')
+            
+            # Scale down the image to match the programmatic palm tree size
+            # The programmatic version was 80x140, so we scale the PNG to approximately that size
+            target_height = int(140 * scale)
+            # Calculate width to maintain aspect ratio
+            aspect_ratio = img.width / img.height
+            target_width = int(target_height * aspect_ratio)
+            
+            img = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
+            
+            return self.pil_to_wx_bitmap(img)
+        except Exception as e:
+            print(f"Error loading jungle PNG: {e}")
+            # Fallback to programmatically generated palm tree (as placeholder)
+            return self.create_palm_tree_sprite(scale)
+    
+    def load_kangaroo_sprite(self, scale=1.0):
+        """Load kangaroo sprite from PNG file"""
+        try:
+            # Get the path to the kangaroo.png file (in assets/images directory)
+            script_dir = os.path.dirname(__file__)
+            kangaroo_path = os.path.join(script_dir, "assets", "images", "kangaroo.png")
+            
+            # Load the PNG image
+            img = Image.open(kangaroo_path)
+            
+            # Convert to RGBA if not already
+            if img.mode != 'RGBA':
+                img = img.convert('RGBA')
+            
+            # Scale down the image to match the programmatic palm tree size
+            # The programmatic version was 80x140, so we scale the PNG to approximately that size
+            target_height = int(140 * scale)
+            # Calculate width to maintain aspect ratio
+            aspect_ratio = img.width / img.height
+            target_width = int(target_height * aspect_ratio)
+            
+            img = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
+            
+            return self.pil_to_wx_bitmap(img)
+        except Exception as e:
+            print(f"Error loading kangaroo PNG: {e}")
+            # Fallback to programmatically generated palm tree (as placeholder)
+            return self.create_palm_tree_sprite(scale)
+    
     def load_cloud_sprite(self):
         """Load cloud sprite from PNG file"""
         try:
             # Get the path to the cloud.png file (in parent directory)
             script_dir = os.path.dirname(os.path.dirname(__file__))
-            cloud_path = os.path.join(script_dir, "cloud.png")
+            cloud_path = os.path.join(script_dir, "assets", "images", "cloud.png")
             
             # Load the PNG image
             img = Image.open(cloud_path)
@@ -1881,10 +2040,10 @@ class LocationProgressPanel(wx.Panel):
         # Location milestones (distance in meters to reach each location)
         self.location_milestones = [
             ("Hawaii", 0),
-            ("Fiji", 500),
-            ("Tahiti", 1000),
-            ("Bora Bora", 1500),
-            ("Maldives", 2000),
+            ("Antarctica", 1000),
+            ("Amazon", 2000),
+            ("Japan", 3000),
+            ("Australia", 4000),
         ]
         
         # Create main sizer
@@ -1984,23 +2143,32 @@ class LocationProgressPanel(wx.Panel):
     
     def update_display(self):
         """Update location and progress display"""
-        current_distance = self.shared_state.total_distance
+        # Get current location from shared_state (set by RowingScenePanel)
+        current_location_name = self.shared_state.current_location
         
-        # Find current and next location
-        current_location_name = "Hawaii"
+        # Calculate cumulative total distance (previous sessions + current session)
+        previous_sessions_distance = self.shared_state.get_cumulative_total_distance()
+        current_session_distance = self.shared_state.total_distance
+        cumulative_total_distance = previous_sessions_distance + current_session_distance
+        
         next_location_name = None
         progress_to_next = 0.0
         
-        for i, (location_name, milestone_distance) in enumerate(self.location_milestones):
-            if current_distance >= milestone_distance:
-                current_location_name = location_name
-                # Check if there's a next location
-                if i + 1 < len(self.location_milestones):
-                    next_location_name, next_milestone = self.location_milestones[i + 1]
-                    # Calculate progress to next location
-                    distance_between = next_milestone - milestone_distance
-                    distance_covered = current_distance - milestone_distance
-                    progress_to_next = min(1.0, distance_covered / distance_between) if distance_between > 0 else 0.0
+        # If current location is Australia (final location), show it and hide progress
+        if current_location_name == "Australia":
+            progress_to_next = 0.0
+            next_location_name = None
+        else:
+            # Find current and next location based on cumulative distance milestones
+            for i, (location_name, milestone_distance) in enumerate(self.location_milestones):
+                if cumulative_total_distance >= milestone_distance:
+                    # Check if there's a next location
+                    if i + 1 < len(self.location_milestones):
+                        next_location_name, next_milestone = self.location_milestones[i + 1]
+                        # Calculate progress to next location
+                        distance_between = next_milestone - milestone_distance
+                        distance_covered = cumulative_total_distance - milestone_distance
+                        progress_to_next = min(1.0, distance_covered / distance_between) if distance_between > 0 else 0.0
         
         # Update location label
         self.location_label.SetLabel(current_location_name)
@@ -2125,6 +2293,34 @@ class RowingScenePanel(wx.Panel):
                 "water_color": wx.Colour(0, 191, 255),        # Deep sky blue
                 "sky_color": wx.Colour(135, 206, 250),        # Sky blue
                 "features": "cliffs"
+            },
+            "Japan": {
+                "landscape_color": wx.Colour(34, 139, 34),    # Green grass
+                "accent_color": wx.Colour(34, 139, 34),       # Green
+                "water_color": wx.Colour(0, 191, 255),        # Turquoise (same as Hawaii for now)
+                "sky_color": wx.Colour(135, 206, 250),        # Sky blue (same as Hawaii for now)
+                "features": "cherry_blossom"
+            },
+            "Antarctica": {
+                "landscape_color": wx.Colour(176, 224, 230),  # Light blue ice
+                "accent_color": wx.Colour(135, 206, 250),     # Light sky blue
+                "water_color": wx.Colour(70, 130, 180),       # Steel blue (colder water)
+                "sky_color": wx.Colour(135, 206, 250),       # Sky blue
+                "features": "penguins"
+            },
+            "Amazon": {
+                "landscape_color": wx.Colour(0, 100, 0),      # Dark green (darker than yellow sand)
+                "accent_color": wx.Colour(34, 139, 34),       # Forest green
+                "water_color": wx.Colour(0, 191, 255),        # Turquoise
+                "sky_color": wx.Colour(135, 206, 250),       # Sky blue
+                "features": "jungle"
+            },
+            "Australia": {
+                "landscape_color": wx.Colour(194, 178, 128),  # Sandy beach (same as Hawaii)
+                "accent_color": wx.Colour(34, 139, 34),       # Green
+                "water_color": wx.Colour(0, 191, 255),        # Turquoise
+                "sky_color": wx.Colour(135, 206, 250),       # Sky blue
+                "features": "kangaroos"
             }
         }
 
@@ -2166,8 +2362,8 @@ class RowingScenePanel(wx.Panel):
         self.draw_location_features(dc, gc, width, height, theme)
 
     def draw_clouds(self, dc, width, height, theme):
-        """Draw clouds in the sky (for palm tree locations)"""
-        if theme["features"] == "palms":
+        """Draw clouds in the sky (for palm tree, cherry blossom, penguin, jungle, and kangaroo locations)"""
+        if theme["features"] == "palms" or theme["features"] == "cherry_blossom" or theme["features"] == "penguins" or theme["features"] == "jungle" or theme["features"] == "kangaroos":
             cloud_sprite = self.sprite_manager.get_sprite('cloud')
             
             if cloud_sprite:
@@ -2285,6 +2481,246 @@ class RowingScenePanel(wx.Panel):
             # Draw palm tree sprites in background
             self.draw_background_palm_sprites(dc, width, height, theme)
             
+        elif theme["features"] == "cherry_blossom":
+            # Draw green grass/landscape in background
+            # Position grass to align with water line
+            grass_y = height - (height // 5) - (height // 6)  # Above water line
+            grass_height = height // 4
+            
+            # Calculate scroll offset to move with cherry blossom trees
+            scroll_offset = int(self.background_offset * 0.5) % width
+            
+            # Draw beautiful textured grass that scrolls
+            if gc:
+                # Create gradient grass base - lighter green at top, darker at bottom
+                grass_color = theme["landscape_color"]
+                # Lighter grass - brighter green
+                grass_light = wx.Colour(
+                    min(255, grass_color.Red() + 20),
+                    min(255, grass_color.Green() + 30),
+                    min(255, grass_color.Blue() + 10)
+                )
+                # Slight gradient from lighter at top to darker at bottom
+                gradient = gc.CreateLinearGradientBrush(
+                    0, grass_y, 0, grass_y + grass_height,
+                    grass_light, grass_color
+                )
+                gc.SetBrush(gradient)
+                gc.DrawRectangle(0, grass_y, width, grass_height)
+                
+                # Add grass texture details (small dots/specks) that scroll
+                dc.SetPen(wx.TRANSPARENT_PEN)
+                for repeat in range(-1, 3):  # Multiple sections for scrolling
+                    section_x = repeat * width - scroll_offset
+                    
+                    # Draw grass texture details
+                    for i in range(0, width, 12):
+                        x = section_x + i
+                        if -20 <= x <= width + 20:
+                            # Vary the y position and size for natural look
+                            for j in range(2):
+                                texture_x = x + (i * 7 % 10) - 5
+                                texture_y = grass_y + grass_height // 3 + (i * 11 % (grass_height // 2))
+                                texture_size = 1 + (i % 2)
+                                
+                                # Lighter/darker grass variations for subtle texture
+                                texture_color = wx.Colour(
+                                    min(255, max(0, grass_color.Red() + (i % 3) * 5 - 5)),
+                                    min(255, max(0, grass_color.Green() + (i % 3) * 8 - 4)),
+                                    min(255, max(0, grass_color.Blue() + (i % 3) * 3 - 2)),
+                                    150
+                                )
+                                dc.SetBrush(wx.Brush(texture_color))
+                                dc.DrawCircle(texture_x, texture_y, texture_size)
+            else:
+                # Fallback without graphics context
+                dc.SetBrush(wx.Brush(theme["landscape_color"]))
+                dc.SetPen(wx.TRANSPARENT_PEN)
+                dc.DrawRectangle(0, grass_y, width, grass_height)
+            
+            # Draw cherry blossom tree sprites in background
+            self.draw_background_cherry_blossom_sprites(dc, width, height, theme)
+            
+        elif theme["features"] == "penguins":
+            # Draw ice/landscape in background
+            # Position ice to align with water line
+            ice_y = height - (height // 5) - (height // 6)  # Above water line
+            ice_height = height // 4
+            
+            # Calculate scroll offset to move with penguins
+            scroll_offset = int(self.background_offset * 0.5) % width
+            
+            # Draw beautiful textured ice that scrolls
+            if gc:
+                # Create gradient ice base - lighter blue at top, slightly darker at bottom
+                ice_color = theme["landscape_color"]
+                # Lighter ice - brighter light blue
+                ice_light = wx.Colour(
+                    min(255, ice_color.Red() + 30),
+                    min(255, ice_color.Green() + 30),
+                    min(255, ice_color.Blue() + 30)
+                )
+                # Slight gradient from lighter at top to darker at bottom
+                gradient = gc.CreateLinearGradientBrush(
+                    0, ice_y, 0, ice_y + ice_height,
+                    ice_light, ice_color
+                )
+                gc.SetBrush(gradient)
+                gc.DrawRectangle(0, ice_y, width, ice_height)
+                
+                # Add ice texture details (small dots/specks) that scroll
+                dc.SetPen(wx.TRANSPARENT_PEN)
+                for repeat in range(-1, 3):  # Multiple sections for scrolling
+                    section_x = repeat * width - scroll_offset
+                    
+                    # Draw ice texture details
+                    for i in range(0, width, 15):
+                        x = section_x + i
+                        if -20 <= x <= width + 20:
+                            # Vary the y position and size for natural look
+                            for j in range(3):
+                                texture_x = x + (i * 7 % 10) - 5
+                                texture_y = ice_y + ice_height // 3 + (i * 11 % (ice_height // 2))
+                                texture_size = 2 + (i % 3)
+                                
+                                # Lighter/darker ice variations for subtle texture
+                                texture_color = wx.Colour(
+                                    min(255, max(0, ice_color.Red() + (i % 3) * 8 - 4)),
+                                    min(255, max(0, ice_color.Green() + (i % 3) * 8 - 4)),
+                                    min(255, max(0, ice_color.Blue() + (i % 3) * 8 - 4)),
+                                    120
+                                )
+                                dc.SetBrush(wx.Brush(texture_color))
+                                dc.DrawCircle(texture_x, texture_y, texture_size)
+            else:
+                # Fallback without graphics context
+                dc.SetBrush(wx.Brush(theme["landscape_color"]))
+                dc.SetPen(wx.TRANSPARENT_PEN)
+                dc.DrawRectangle(0, ice_y, width, ice_height)
+            
+            # Draw penguin sprites in background
+            self.draw_background_penguin_sprites(dc, width, height, theme)
+            
+        elif theme["features"] == "jungle":
+            # Draw dark green ground/landscape in background
+            # Position ground to align with water line
+            ground_y = height - (height // 5) - (height // 6)  # Above water line
+            ground_height = height // 4
+            
+            # Calculate scroll offset to move with jungle trees
+            scroll_offset = int(self.background_offset * 0.5) % width
+            
+            # Draw beautiful textured dark green ground that scrolls
+            if gc:
+                # Create gradient ground base - lighter dark green at top, darker at bottom
+                ground_color = theme["landscape_color"]
+                # Lighter dark green - slightly brighter
+                ground_light = wx.Colour(
+                    min(255, ground_color.Red() + 20),
+                    min(255, ground_color.Green() + 25),
+                    min(255, ground_color.Blue() + 10)
+                )
+                # Slight gradient from lighter at top to darker at bottom
+                gradient = gc.CreateLinearGradientBrush(
+                    0, ground_y, 0, ground_y + ground_height,
+                    ground_light, ground_color
+                )
+                gc.SetBrush(gradient)
+                gc.DrawRectangle(0, ground_y, width, ground_height)
+                
+                # Add ground texture details (small dots/specks) that scroll
+                dc.SetPen(wx.TRANSPARENT_PEN)
+                for repeat in range(-1, 3):  # Multiple sections for scrolling
+                    section_x = repeat * width - scroll_offset
+                    
+                    # Draw ground texture details
+                    for i in range(0, width, 15):
+                        x = section_x + i
+                        if -20 <= x <= width + 20:
+                            # Vary the y position and size for natural look
+                            for j in range(3):
+                                texture_x = x + (i * 7 % 10) - 5
+                                texture_y = ground_y + ground_height // 3 + (i * 11 % (ground_height // 2))
+                                texture_size = 2 + (i % 3)
+                                
+                                # Lighter/darker green variations for subtle texture
+                                texture_color = wx.Colour(
+                                    min(255, max(0, ground_color.Red() + (i % 3) * 5 - 5)),
+                                    min(255, max(0, ground_color.Green() + (i % 3) * 8 - 4)),
+                                    min(255, max(0, ground_color.Blue() + (i % 3) * 3 - 2)),
+                                    120
+                                )
+                                dc.SetBrush(wx.Brush(texture_color))
+                                dc.DrawCircle(texture_x, texture_y, texture_size)
+            else:
+                # Fallback without graphics context
+                dc.SetBrush(wx.Brush(theme["landscape_color"]))
+                dc.SetPen(wx.TRANSPARENT_PEN)
+                dc.DrawRectangle(0, ground_y, width, ground_height)
+            
+            # Draw jungle tree sprites in background
+            self.draw_background_jungle_sprites(dc, width, height, theme)
+            
+        elif theme["features"] == "kangaroos":
+            # Draw sandy beach/island in background (same as palms)
+            # Position beach to align with water line
+            beach_y = height - (height // 5) - (height // 6)  # Above water line
+            beach_height = height // 4
+            
+            # Calculate scroll offset to move with kangaroos
+            scroll_offset = int(self.background_offset * 0.5) % width
+            
+            # Draw beautiful textured sand that scrolls
+            if gc:
+                # Create gradient sand base - lighter colors
+                sand_color = theme["landscape_color"]
+                # Lighter sand - brighten instead of darken
+                sand_light = wx.Colour(
+                    min(255, sand_color.Red() + 30),
+                    min(255, sand_color.Green() + 30),
+                    min(255, sand_color.Blue() + 30)
+                )
+                # Slight gradient from base to lighter
+                gradient = gc.CreateLinearGradientBrush(
+                    0, beach_y, 0, beach_y + beach_height,
+                    sand_color, sand_light
+                )
+                gc.SetBrush(gradient)
+                gc.DrawRectangle(0, beach_y, width, beach_height)
+                
+                # Add sand texture details (dots/specks) that scroll
+                dc.SetPen(wx.TRANSPARENT_PEN)
+                for repeat in range(-1, 3):  # Multiple sections for scrolling
+                    section_x = repeat * width - scroll_offset
+                    
+                    # Draw sand grain details
+                    for i in range(0, width, 15):
+                        x = section_x + i
+                        if -20 <= x <= width + 20:
+                            # Vary the y position and size for natural look
+                            for j in range(3):
+                                grain_x = x + (i * 7 % 10) - 5
+                                grain_y = beach_y + beach_height // 3 + (i * 11 % (beach_height // 2))
+                                grain_size = 2 + (i % 3)
+                                
+                                # Lighter sand grains for subtle texture
+                                grain_color = wx.Colour(
+                                    min(255, sand_color.Red() + 40),
+                                    min(255, sand_color.Green() + 35),
+                                    min(255, sand_color.Blue() + 25),
+                                    120
+                                )
+                                dc.SetBrush(wx.Brush(grain_color))
+                                dc.DrawCircle(grain_x, grain_y, grain_size)
+            else:
+                # Fallback without graphics context
+                dc.SetBrush(wx.Brush(theme["landscape_color"]))
+                dc.SetPen(wx.TRANSPARENT_PEN)
+                dc.DrawRectangle(0, beach_y, width, beach_height)
+            
+            # Draw kangaroo sprites in background
+            self.draw_background_kangaroo_sprites(dc, width, height, theme)
+            
         elif theme["features"] == "icebergs":
             # Draw icy mountains/icebergs that scroll with randomness
             dc.SetBrush(wx.Brush(theme["landscape_color"]))
@@ -2386,6 +2822,162 @@ class RowingScenePanel(wx.Panel):
                 # Only draw if on screen
                 if -150 <= palm_x <= width + 150:
                     dc.DrawBitmap(sprite, palm_draw_x, palm_draw_y, True)
+
+    def draw_background_cherry_blossom_sprites(self, dc, width, height, theme):
+        """Draw cherry blossom tree sprites in the background with scrolling"""
+        cherry_spacing = width // 3
+        
+        # Calculate grass position to match where it's actually drawn
+        # This should match the grass_y calculation in draw_landscape
+        grass_y = height - (height // 5) - (height // 6)  # Above water line
+        
+        # Calculate scroll offset for parallax effect
+        scroll_offset = int(self.background_offset * 0.5) % (width * 2)
+        
+        # Get cherry blossom sprites
+        cherry_blossom = self.sprite_manager.get_sprite('cherry_blossom')
+        cherry_blossom_small = self.sprite_manager.get_sprite('cherry_blossom_small')
+        
+        if not cherry_blossom or not cherry_blossom_small:
+            return
+        
+        # Draw multiple cherry blossom trees across sections
+        for repeat in range(-1, 4):
+            section_x = repeat * cherry_spacing * 4 - scroll_offset
+            
+            # 4 cherry blossom trees per section at fixed positions
+            for i in range(4):
+                cherry_x = section_x + i * cherry_spacing
+                
+                # Alternate between sizes for variety
+                sprite = cherry_blossom if i % 2 == 0 else cherry_blossom_small
+                sprite_width = sprite.GetWidth()
+                sprite_height = sprite.GetHeight()
+                
+                # Position cherry blossom tree on grass (bottom of tree should be at grass level)
+                cherry_draw_x = cherry_x - sprite_width // 2
+                cherry_draw_y = grass_y - sprite_height + 20  # Adjust slightly to sit on grass
+                
+                # Only draw if on screen
+                if -150 <= cherry_x <= width + 150:
+                    dc.DrawBitmap(sprite, cherry_draw_x, cherry_draw_y, True)
+
+    def draw_background_penguin_sprites(self, dc, width, height, theme):
+        """Draw penguin sprites in the background with scrolling"""
+        penguin_spacing = width // 3
+        
+        # Calculate ice position to match where it's actually drawn
+        # This should match the ice_y calculation in draw_landscape
+        ice_y = height - (height // 5) - (height // 6)  # Above water line
+        
+        # Calculate scroll offset for parallax effect
+        scroll_offset = int(self.background_offset * 0.5) % (width * 2)
+        
+        # Get penguin sprites
+        penguin = self.sprite_manager.get_sprite('penguin')
+        penguin_small = self.sprite_manager.get_sprite('penguin_small')
+        
+        if not penguin or not penguin_small:
+            return
+        
+        # Draw multiple penguins across sections
+        for repeat in range(-1, 4):
+            section_x = repeat * penguin_spacing * 4 - scroll_offset
+            
+            # 4 penguins per section at fixed positions
+            for i in range(4):
+                penguin_x = section_x + i * penguin_spacing
+                
+                # Alternate between sizes for variety
+                sprite = penguin if i % 2 == 0 else penguin_small
+                sprite_width = sprite.GetWidth()
+                sprite_height = sprite.GetHeight()
+                
+                # Position penguin on ice (bottom of penguin should be at ice level)
+                penguin_draw_x = penguin_x - sprite_width // 2
+                penguin_draw_y = ice_y - sprite_height + 20  # Adjust slightly to sit on ice
+                
+                # Only draw if on screen
+                if -150 <= penguin_x <= width + 150:
+                    dc.DrawBitmap(sprite, penguin_draw_x, penguin_draw_y, True)
+
+    def draw_background_jungle_sprites(self, dc, width, height, theme):
+        """Draw jungle tree sprites in the background with scrolling"""
+        jungle_spacing = width // 3
+        
+        # Calculate ground position to match where it's actually drawn
+        # This should match the ground_y calculation in draw_landscape
+        ground_y = height - (height // 5) - (height // 6)  # Above water line
+        
+        # Calculate scroll offset for parallax effect
+        scroll_offset = int(self.background_offset * 0.5) % (width * 2)
+        
+        # Get jungle sprites
+        jungle = self.sprite_manager.get_sprite('jungle')
+        jungle_small = self.sprite_manager.get_sprite('jungle_small')
+        
+        if not jungle or not jungle_small:
+            return
+        
+        # Draw multiple jungle trees across sections
+        for repeat in range(-1, 4):
+            section_x = repeat * jungle_spacing * 4 - scroll_offset
+            
+            # 4 jungle trees per section at fixed positions
+            for i in range(4):
+                jungle_x = section_x + i * jungle_spacing
+                
+                # Alternate between sizes for variety
+                sprite = jungle if i % 2 == 0 else jungle_small
+                sprite_width = sprite.GetWidth()
+                sprite_height = sprite.GetHeight()
+                
+                # Position jungle tree on ground (bottom of tree should be at ground level)
+                jungle_draw_x = jungle_x - sprite_width // 2
+                jungle_draw_y = ground_y - sprite_height + 20  # Adjust slightly to sit on ground
+                
+                # Only draw if on screen
+                if -150 <= jungle_x <= width + 150:
+                    dc.DrawBitmap(sprite, jungle_draw_x, jungle_draw_y, True)
+
+    def draw_background_kangaroo_sprites(self, dc, width, height, theme):
+        """Draw kangaroo sprites in the background with scrolling"""
+        kangaroo_spacing = width // 3
+        
+        # Calculate beach position to match where it's actually drawn
+        # This should match the beach_y calculation in draw_landscape
+        beach_y = height - (height // 5) - (height // 6)  # Above water line
+        
+        # Calculate scroll offset for parallax effect
+        scroll_offset = int(self.background_offset * 0.5) % (width * 2)
+        
+        # Get kangaroo sprites
+        kangaroo = self.sprite_manager.get_sprite('kangaroo')
+        kangaroo_small = self.sprite_manager.get_sprite('kangaroo_small')
+        
+        if not kangaroo or not kangaroo_small:
+            return
+        
+        # Draw multiple kangaroos across sections
+        for repeat in range(-1, 4):
+            section_x = repeat * kangaroo_spacing * 4 - scroll_offset
+            
+            # 4 kangaroos per section at fixed positions
+            for i in range(4):
+                kangaroo_x = section_x + i * kangaroo_spacing
+                
+                # Alternate between sizes for variety
+                sprite = kangaroo if i % 2 == 0 else kangaroo_small
+                sprite_width = sprite.GetWidth()
+                sprite_height = sprite.GetHeight()
+                
+                # Position kangaroo on beach (bottom of kangaroo should be at beach level)
+                kangaroo_draw_x = kangaroo_x - sprite_width // 2
+                kangaroo_draw_y = beach_y - sprite_height + 20  # Adjust slightly to sit on beach
+                
+                # Only draw if on screen
+                if -150 <= kangaroo_x <= width + 150:
+                    dc.DrawBitmap(sprite, kangaroo_draw_x, kangaroo_draw_y, True)
 
     def draw_random_floating_icebergs(self, dc, width, water_y, scroll_offset):
         """Draw predefined floating icebergs in the water"""
@@ -2546,6 +3138,18 @@ class RowingScenePanel(wx.Panel):
         if theme["features"] == "palms":
             # Clouds are now drawn in a separate method before landscape
             pass
+        elif theme["features"] == "cherry_blossom":
+            # Clouds are now drawn in a separate method before landscape
+            pass
+        elif theme["features"] == "penguins":
+            # Clouds are now drawn in a separate method before landscape
+            pass
+        elif theme["features"] == "jungle":
+            # Clouds are now drawn in a separate method before landscape
+            pass
+        elif theme["features"] == "kangaroos":
+            # Clouds are now drawn in a separate method before landscape
+            pass
             
         elif theme["features"] == "icebergs":
             # Draw floating icebergs in water that scroll with randomness
@@ -2583,11 +3187,27 @@ class RowingScenePanel(wx.Panel):
                 # Background scrolls based on cumulative distance
                 self.background_offset = self.cumulative_distance
         
-        # Update location based on distance (for map theme changes)
-        current_distance = self.shared_state.total_distance
-        for location_name, milestone_distance in self.location_milestones:
-            if current_distance >= milestone_distance:
-                self.current_location = location_name
+        # Update location based on manual override or automatic switching
+        if self.shared_state.location_override is not None:
+            # Manual override: use the specified location
+            self.current_location = self.shared_state.location_override
+        else:
+            # Automatic mode: switch based on cumulative total distance across all sessions
+            # Calculate cumulative distance from all previous sessions plus current session distance
+            previous_sessions_distance = self.shared_state.get_cumulative_total_distance()
+            current_session_distance = self.shared_state.total_distance
+            cumulative_total_distance = previous_sessions_distance + current_session_distance
+            
+            # Find the highest milestone reached
+            self.current_location = "Hawaii"  # Default to Hawaii
+            for location_name, milestone_distance in self.location_milestones:
+                if cumulative_total_distance >= milestone_distance:
+                    self.current_location = location_name
+                else:
+                    break  # Stop at first milestone not reached
+        
+        # Update shared_state so LocationProgressPanel can access it
+        self.shared_state.current_location = self.current_location
         
         self.Refresh()
 
@@ -2595,7 +3215,23 @@ class RowingScenePanel(wx.Panel):
         """Reset the scene"""
         self.background_offset = 0.0  # Reset background scroll
         self.cumulative_distance = 0.0  # Reset distance
-        self.current_location = "Hawaii"  # Reset to starting location
+        # Reset location based on override or cumulative distance
+        if self.shared_state.location_override is not None:
+            self.current_location = self.shared_state.location_override
+        else:
+            # Always start with Hawaii, but then check cumulative distance
+            # Calculate cumulative distance from all previous sessions (current session is 0 on reset)
+            previous_sessions_distance = self.shared_state.get_cumulative_total_distance()
+            
+            # Find the highest milestone reached based on previous sessions
+            self.current_location = "Hawaii"  # Default to Hawaii
+            for location_name, milestone_distance in self.location_milestones:
+                if previous_sessions_distance >= milestone_distance:
+                    self.current_location = location_name
+                else:
+                    break  # Stop at first milestone not reached
+        # Update shared_state
+        self.shared_state.current_location = self.current_location
         self.Refresh()
 
 # ------------------------------------------------------------------------------------------------------------
