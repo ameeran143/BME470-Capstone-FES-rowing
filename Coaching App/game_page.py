@@ -89,12 +89,12 @@ class SharedStats:
         import platform
         self.is_mac = platform.system() == 'Darwin'
         self.hardware_mode = not self.is_mac  # Disable hardware mode on Mac
-        self.hardware_connected = False
+        self.hardware_connected = True
         self.last_hardware_check = 0
         
         # Mode control: "hardware", "csv_playback", or "simulation"
         self.current_mode = None  # Will be determined by detect_mode()
-        self.mode_override = None  # Manual override (None = auto-detect)
+        self.mode_override = "hardware"  # Manual override - force hardware/sensor mode
         
         # CSV playback mode (replay data from sensor CSV files)
         self.anc_playback_mode = False
@@ -131,7 +131,7 @@ class SharedStats:
         # None = automatic (switches to Japan after 30 minutes)
         # "Hawaii" = force Hawaii location
         # "Japan" = force Japan location
-        self.location_override = "Japan"  # Set to "Japan", "Antarctica", "Amazon", "Australia" or "Hawaii" for manual control, None for auto
+        self.location_override = None  # Set to "Japan", "Antarctica", "Amazon", "Australia" or "Hawaii" for manual control, None for auto
         self.current_location = "Hawaii"  # Current location name (updated by RowingScenePanel)
         
         # Don't auto-detect mode here - wait until game page is activated
@@ -146,19 +146,19 @@ class SharedStats:
         try:
             with nidaqmx.Task() as task:
                 # Test with the new channel mapping - add each channel individually
-                task.ai_channels.add_ai_voltage_chan("Dev2/ai16",
+                task.ai_channels.add_ai_voltage_chan("Dev1/ai16",
                                                      terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
                                                      min_val=0.0, max_val=10.0)
-                task.ai_channels.add_ai_voltage_chan("Dev2/ai18",
+                task.ai_channels.add_ai_voltage_chan("Dev1/ai18",
                                                      terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
                                                      min_val=0.0, max_val=10.0)
-                task.ai_channels.add_ai_voltage_chan("Dev2/ai20",
+                task.ai_channels.add_ai_voltage_chan("Dev1/ai20",
                                                      terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
                                                      min_val=0.0, max_val=10.0)
-                task.ai_channels.add_ai_voltage_chan("Dev2/ai21",
+                task.ai_channels.add_ai_voltage_chan("Dev1/ai21",
                                                      terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
                                                      min_val=0.0, max_val=10.0)
-                task.ai_channels.add_ai_voltage_chan("Dev2/ai22",
+                task.ai_channels.add_ai_voltage_chan("Dev1/ai22",
                                                      terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
                                                      min_val=0.0, max_val=10.0)
                 return True
@@ -912,7 +912,7 @@ class SharedStats:
 
     def update_stats(self):
         # update time
-        self.time_elapsed = int(time.time() - self.time_start) / 60
+        self.time_elapsed = (time.time() - self.time_start) / 60
 
         # CSV playback mode (replay from CSV file)
         if self.anc_playback_mode and self.anc_data:
@@ -1839,23 +1839,23 @@ class GamePage(wx.Panel):
                 try:
                     self.shared_state.hardware_task = nidaqmx.Task()
                     # Configure channels with RSE terminal configuration and 0-10V range (matching hardware_test_safe.py)
-                    self.shared_state.hardware_task.ai_channels.add_ai_voltage_chan("Dev2/ai16",
+                    self.shared_state.hardware_task.ai_channels.add_ai_voltage_chan("Dev1/ai16",
                                                                                    terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
                                                                                    min_val=0.0, max_val=10.0)   # Left Foot Force
-                    self.shared_state.hardware_task.ai_channels.add_ai_voltage_chan("Dev2/ai18",
+                    self.shared_state.hardware_task.ai_channels.add_ai_voltage_chan("Dev1/ai18",
                                                                                    terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
                                                                                    min_val=0.0, max_val=10.0)   # Right Foot Force
-                    self.shared_state.hardware_task.ai_channels.add_ai_voltage_chan("Dev2/ai20",
+                    self.shared_state.hardware_task.ai_channels.add_ai_voltage_chan("Dev1/ai20",
                                                                                    terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
                                                                                    min_val=0.0, max_val=10.0)   # Handle Force
-                    self.shared_state.hardware_task.ai_channels.add_ai_voltage_chan("Dev2/ai21",
+                    self.shared_state.hardware_task.ai_channels.add_ai_voltage_chan("Dev1/ai21",
                                                                                    terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
                                                                                    min_val=0.0, max_val=10.0)   # Front Potentiometer (Handle Position)
-                    self.shared_state.hardware_task.ai_channels.add_ai_voltage_chan("Dev2/ai22",
+                    self.shared_state.hardware_task.ai_channels.add_ai_voltage_chan("Dev1/ai22",
                                                                                    terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
                                                                                    min_val=0.0, max_val=10.0)   # Back Potentiometer (Seat Position)
-                    self.shared_state.hardware_task.timing.cfg_samp_clk_timing(rate=1000.0, sample_mode=nidaqmx.constants.AcquisitionType.CONTINUOUS)
-                    self.shared_state.hardware_task.start()
+                    # Don't use CONTINUOUS mode - read on-demand to avoid blocking UI timer
+                    # This matches hardware_test_safe.py approach
                     print("Hardware task initialized successfully")
                 except Exception as e:
                     print(f"Failed to initialize hardware task: {e}")
@@ -2040,10 +2040,10 @@ class LocationProgressPanel(wx.Panel):
         # Location milestones (distance in meters to reach each location)
         self.location_milestones = [
             ("Hawaii", 0),
-            ("Antarctica", 1000),
-            ("Amazon", 2000),
-            ("Japan", 3000),
-            ("Australia", 4000),
+            ("Antarctica", 5),
+            ("Amazon", 10),
+            ("Japan", 15),
+            ("Australia", 20),
         ]
         
         # Create main sizer

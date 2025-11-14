@@ -1,0 +1,47 @@
+======================================================================
+Sensor Data Recording Summary
+======================================================================
+
+Recording Date: 2025-11-14 15:14:51
+Duration: 17.15 seconds
+Total Samples: 786
+Average Sample Rate: 45.8 Hz
+Expected Sample Rate: 2000 Hz
+
+Channel Statistics:
+----------------------------------------------------------------------
+Left Foot Force (ai16):
+  Mean: 0.047V
+  Std:  0.022V
+  Min:  -0.118V
+  Max:  0.055V
+  Range: 0.173V
+
+Right Foot Force (ai18):
+  Mean: -0.044V
+  Std:  0.029V
+  Min:  -0.219V
+  Max:  -0.019V
+  Range: 0.200V
+
+Handle Force (ai20):
+  Mean: 0.467V
+  Std:  0.634V
+  Min:  0.121V
+  Max:  2.978V
+  Range: 2.857V
+
+Handle Position (ai21):
+  Mean: 0.187V
+  Std:  0.000V
+  Min:  0.186V
+  Max:  0.188V
+  Range: 0.002V
+
+Seat Position (ai22):
+  Mean: 3.613V
+  Std:  1.408V
+  Min:  1.598V
+  Max:  5.702V
+  Range: 4.103V
+

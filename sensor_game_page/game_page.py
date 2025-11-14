@@ -1,6 +1,6 @@
 # game page
 """
-SENSOR CHANNEL MAPPING (NI-DAQ Dev2):
+SENSOR CHANNEL MAPPING (NI-DAQ Dev1):
 ======================================
 ai0-ai15: [UNUSED]
 ai16: Left Foot Force Sensor
@@ -299,11 +299,11 @@ class SharedStats:
                 with nidaqmx.Task() as task:
                     # Add channels individually with optimized voltage ranges for better ADC resolution
                     # Ranges based on actual sensor output measurements (with safety margin)
-                    task.ai_channels.add_ai_voltage_chan("Dev2/ai16", min_val=7.0, max_val=9.5)   # Left Foot Force
-                    task.ai_channels.add_ai_voltage_chan("Dev2/ai18", min_val=7.0, max_val=9.0)   # Right Foot Force
-                    task.ai_channels.add_ai_voltage_chan("Dev2/ai20", min_val=8.5, max_val=10.5)  # Handle Force
-                    task.ai_channels.add_ai_voltage_chan("Dev2/ai21", min_val=8.5, max_val=11.0)  # Handle Position
-                    task.ai_channels.add_ai_voltage_chan("Dev2/ai22", min_val=-10.0, max_val=10.0)  # Seat Position
+                    task.ai_channels.add_ai_voltage_chan("Dev1/ai16", min_val=7.0, max_val=9.5)   # Left Foot Force
+                    task.ai_channels.add_ai_voltage_chan("Dev1/ai18", min_val=7.0, max_val=9.0)   # Right Foot Force
+                    task.ai_channels.add_ai_voltage_chan("Dev1/ai20", min_val=8.5, max_val=10.5)  # Handle Force
+                    task.ai_channels.add_ai_voltage_chan("Dev1/ai21", min_val=8.5, max_val=11.0)  # Handle Position
+                    task.ai_channels.add_ai_voltage_chan("Dev1/ai22", min_val=-10.0, max_val=10.0)  # Seat Position
                     data = task.read(number_of_samples_per_channel=1)
                     
                     # Extract single values from nested list structure

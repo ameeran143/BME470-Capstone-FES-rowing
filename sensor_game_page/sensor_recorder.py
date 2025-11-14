@@ -17,16 +17,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime
 
-# Add parent directory to path for imports
-sys.path.insert(0, os.path.dirname(__file__))
-
-from sensor_reader import SensorReader
-
-
 class SensorRecorder:
     """Handles recording sensor data"""
-    def __init__(self, sensor_reader):
-        self.sensor_reader = sensor_reader
+    def __init__(self):
         self.is_recording = False
         self.recording_thread = None
         self.data_buffer = []
@@ -39,7 +32,7 @@ class SensorRecorder:
         
         # Channel names for 5 sensors
         self.channel_names = [
-            'Left Foot Force (ai16)',
+            'Button (a19)',
             'Right Foot Force (ai18)',
             'Handle Force (ai20)',
             'Handle Position (ai21)',
@@ -97,19 +90,19 @@ class SensorRecorder:
             # Configure channels with explicit terminal configuration (RSE - Referenced Single-Ended)
             # This matches typical Cortex configuration for single-ended sensors
             # RSE uses AI GND as reference, which is standard for potentiometers and load cells
-            self.daq_task.ai_channels.add_ai_voltage_chan("Dev2/ai16", 
+            self.daq_task.ai_channels.add_ai_voltage_chan("Dev1/ai19", 
                                                           terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
-                                                          min_val=0.0, max_val=10.0)   # Left Foot Force
-            self.daq_task.ai_channels.add_ai_voltage_chan("Dev2/ai18",
+                                                          min_val=0.0, max_val=10.0)   # Button Press (ai19)
+            self.daq_task.ai_channels.add_ai_voltage_chan("Dev1/ai18",
                                                           terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
                                                           min_val=0.0, max_val=10.0)   # Right Foot Force
-            self.daq_task.ai_channels.add_ai_voltage_chan("Dev2/ai20",
+            self.daq_task.ai_channels.add_ai_voltage_chan("Dev1/ai20",
                                                           terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
                                                           min_val=0.0, max_val=10.0)   # Handle Force
-            self.daq_task.ai_channels.add_ai_voltage_chan("Dev2/ai21",
+            self.daq_task.ai_channels.add_ai_voltage_chan("Dev1/ai21",
                                                           terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
                                                           min_val=0.0, max_val=10.0)   # Handle Position
-            self.daq_task.ai_channels.add_ai_voltage_chan("Dev2/ai22",
+            self.daq_task.ai_channels.add_ai_voltage_chan("Dev1/ai22",
                                                           terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
                                                           min_val=0.0, max_val=10.0)   # Seat Position (0-10V as in Cortex)
     
@@ -123,7 +116,7 @@ class SensorRecorder:
             self.daq_task = None
     
     def _read_sensor_data(self):
-        """Read sensor data from Dev2 hardware - returns raw voltage values"""
+        """Read sensor data from Dev1 hardware - returns raw voltage values"""
         import nidaqmx
         try:
             # Initialize task if not already created
@@ -147,12 +140,12 @@ class SensorRecorder:
                 'seat_position': seat_position_voltage
             }
         except Exception as e:
-            raise Exception(f"Error reading from Dev2: {e}")
+            raise Exception(f"Error reading from Dev1: {e}")
     
     def test_sensors(self, num_samples=5):
         """Test sensor reading - reads multiple samples and displays them"""
         print("\n" + "=" * 70)
-        print("🔍 TESTING SENSOR DATA READING FROM Dev2")
+        print("🔍 TESTING SENSOR DATA READING FROM Dev1")
         print("=" * 70)
         
         results = []
@@ -164,7 +157,7 @@ class SensorRecorder:
                     data = self._read_sensor_data()
                     results.append(data)
                     print(f"\nSample {i+1}/{num_samples}:")
-                    print(f"  Left Foot Force (ai16):    {data['left_foot']:8.4f} V")
+                    print(f"  Button (ai19):    {data['left_foot']:8.4f} V")
                     print(f"  Right Foot Force (ai18):   {data['right_foot']:8.4f} V")
                     print(f"  Handle Force (ai20):       {data['handle_force']:8.4f} V")
                     print(f"  Handle Position (ai21):    {data['handle_position']:8.4f} V")
@@ -193,11 +186,11 @@ class SensorRecorder:
                 print(f"  Max:    {np.max(values):8.4f} V")
                 print(f"  Range:  {np.max(values) - np.min(values):8.4f} V")
             
-            print("\n✅ Sensor reading test PASSED - Dev2 is responding correctly!")
+            print("\n✅ Sensor reading test PASSED - Dev1 is responding correctly!")
             print("=" * 70 + "\n")
             return True
         else:
-            print("\n❌ Sensor reading test FAILED - Could not read any data from Dev2")
+            print("\n❌ Sensor reading test FAILED - Could not read any data from Dev1")
             if errors:
                 print("Errors encountered:")
                 for error in errors:
@@ -343,45 +336,50 @@ class RecordingControlPanel(wx.Frame):
         print("📹 SENSOR DATA RECORDER")
         print("=" * 60)
         
-        # Initialize sensor reader
+        # Test hardware connection
         try:
-            self.sensor_reader = SensorReader()
+            import nidaqmx
+            import platform
             
-            if not self.sensor_reader.start():
-                error_msg = (
-                    "Failed to connect to NI-DAQ hardware.\n\n"
-                    "Troubleshooting:\n"
-                    "• Check NI-DAQ device is connected\n"
-                    "• Verify device name is 'Dev2' in NI MAX\n"
-                    "• Install/update NI-DAQmx drivers\n"
-                    "• Try running as administrator\n"
-                    "• Ensure you're on Windows or Linux (macOS not supported)\n\n"
+            is_mac = platform.system() == 'Darwin'
+            if is_mac:
+                wx.MessageBox(
+                    "macOS detected: NI-DAQmx not supported on macOS.\n"
+                    "Please use Windows or Linux for hardware testing.",
+                    "Platform Not Supported",
+                    wx.OK | wx.ICON_ERROR
                 )
-                if self.sensor_reader.last_error:
-                    error_msg += f"Error: {self.sensor_reader.last_error}"
-                
-                wx.MessageBox(error_msg, "Hardware Connection Error", wx.OK | wx.ICON_ERROR)
-                print("❌ Hardware connection failed - exiting")
                 sys.exit(1)
             
-            print("✅ Sensor reader initialized")
+            # Test connection by trying to read from hardware
+            with nidaqmx.Task() as test_task:
+                test_task.ai_channels.add_ai_voltage_chan("Dev1/ai19",
+                                                         terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
+                                                         min_val=0.0, max_val=10.0)
+                test_task.read(number_of_samples_per_channel=1)
+            
+            print("✅ Hardware connection verified")
             
         except Exception as e:
-            print(f"❌ Failed to initialize sensor reader: {e}")
-            import traceback
-            traceback.print_exc()
-            wx.MessageBox(
-                f"Failed to initialize sensor reader:\n{e}",
-                "Initialization Error",
-                wx.OK | wx.ICON_ERROR
+            error_msg = (
+                "Failed to connect to NI-DAQ hardware.\n\n"
+                "Troubleshooting:\n"
+                "• Check NI-DAQ device is connected\n"
+                "• Verify device name is 'Dev1' in NI MAX\n"
+                "• Install/update NI-DAQmx drivers\n"
+                "• Try running as administrator\n"
+                "• Ensure you're on Windows or Linux (macOS not supported)\n\n"
+                f"Error: {str(e)}"
             )
+            wx.MessageBox(error_msg, "Hardware Connection Error", wx.OK | wx.ICON_ERROR)
+            print(f"❌ Hardware connection failed: {e}")
             sys.exit(1)
         
         # Initialize recorder
-        self.recorder = SensorRecorder(self.sensor_reader)
+        self.recorder = SensorRecorder()
         
         # Test sensors on startup
-        print("\n🔍 Testing sensor connection to Dev2...")
+        print("\n🔍 Testing sensor connection to Dev1...")
         test_success = self.recorder.test_sensors(num_samples=3)
         
         # Create UI
@@ -471,7 +469,7 @@ class RecordingControlPanel(wx.Frame):
         self.test_button.Disable()
         self.status_label.SetLabel("Status: Testing Sensors...")
         self.status_label.SetForegroundColour(wx.Colour(33, 150, 243))
-        self.info_label.SetLabel("Reading sensor data from Dev2...")
+        self.info_label.SetLabel("Reading sensor data from Dev1...")
         wx.Yield()
         
         # Run test
@@ -480,10 +478,10 @@ class RecordingControlPanel(wx.Frame):
         if test_success:
             self.status_label.SetLabel("Status: Sensors OK")
             self.status_label.SetForegroundColour(wx.Colour(0, 128, 0))
-            self.info_label.SetLabel("Dev2 is responding correctly - ready to record")
+            self.info_label.SetLabel("Dev1 is responding correctly - ready to record")
             wx.MessageBox(
                 "Sensor test PASSED!\n\n"
-                "All 5 channels on Dev2 are responding correctly.\n"
+                "All 5 channels on Dev1 are responding correctly.\n"
                 "Check console for detailed sensor readings.",
                 "Test Successful",
                 wx.OK | wx.ICON_INFORMATION
@@ -491,15 +489,15 @@ class RecordingControlPanel(wx.Frame):
         else:
             self.status_label.SetLabel("Status: Test Failed")
             self.status_label.SetForegroundColour(wx.Colour(244, 67, 54))
-            self.info_label.SetLabel("Could not read from Dev2 - check hardware connection")
+            self.info_label.SetLabel("Could not read from Dev1 - check hardware connection")
             wx.MessageBox(
                 "Sensor test FAILED!\n\n"
-                "Could not read data from Dev2.\n"
+                "Could not read data from Dev1.\n"
                 "Check console for error details.\n\n"
                 "Troubleshooting:\n"
-                "• Verify Dev2 is connected\n"
+                "• Verify Dev1 is connected\n"
                 "• Check NI-DAQmx drivers\n"
-                "• Ensure device name is 'Dev2' in NI MAX",
+                "• Ensure device name is 'Dev1' in NI MAX",
                 "Test Failed",
                 wx.OK | wx.ICON_ERROR
             )

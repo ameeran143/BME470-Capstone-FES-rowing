@@ -3,7 +3,7 @@
 Sensor Reader Module for Real-Time Hardware Data Collection
 Reads sensor data directly from NI-DAQ hardware and provides it to the game
 
-SENSOR CHANNEL MAPPING (NI-DAQ Dev2):
+SENSOR CHANNEL MAPPING (NI-DAQ Dev1):
 ======================================
 ai16: Left Foot Force Sensor
 ai18: Right Foot Force Sensor
@@ -20,7 +20,7 @@ import platform
 class SensorReader:
     def __init__(self):
         """Initialize hardware sensor reader"""
-        self.device_name = "Dev2"
+        self.device_name = "Dev1"
         self.is_connected = False
         self.last_error = None
         self.connection_attempts = 0

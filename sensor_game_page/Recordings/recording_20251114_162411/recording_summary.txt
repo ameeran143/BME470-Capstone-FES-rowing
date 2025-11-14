@@ -1,0 +1,47 @@
+======================================================================
+Sensor Data Recording Summary
+======================================================================
+
+Recording Date: 2025-11-14 16:24:35
+Duration: 23.30 seconds
+Total Samples: 1084
+Average Sample Rate: 46.5 Hz
+Expected Sample Rate: 2000 Hz
+
+Channel Statistics:
+----------------------------------------------------------------------
+Button (a19):
+  Mean: -2.187V
+  Std:  0.347V
+  Min:  -3.375V
+  Max:  -1.505V
+  Range: 1.870V
+
+Right Foot Force (ai18):
+  Mean: -0.038V
+  Std:  0.011V
+  Min:  -0.079V
+  Max:  -0.023V
+  Range: 0.057V
+
+Handle Force (ai20):
+  Mean: 1.721V
+  Std:  0.023V
+  Min:  1.674V
+  Max:  1.784V
+  Range: 0.110V
+
+Handle Position (ai21):
+  Mean: 4.147V
+  Std:  1.281V
+  Min:  2.375V
+  Max:  6.380V
+  Range: 4.004V
+
+Seat Position (ai22):
+  Mean: 4.505V
+  Std:  1.221V
+  Min:  2.028V
+  Max:  5.767V
+  Range: 3.738V
+

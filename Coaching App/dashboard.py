@@ -1451,6 +1451,43 @@ class DashboardPage(wx.Panel):
         
         # Create the dashboard layout
         self.create_layout()
+    
+    def refresh_dashboard(self):
+        """Refresh dashboard data and update all cards - called when navigating to dashboard"""
+        if not self.is_logged_in or not self.current_username:
+            return
+        
+        # Reload session data for the logged-in user
+        self.session_data = self.load_user_session_data(self.current_username)
+        
+        # Reload user account data (in case it was updated elsewhere)
+        if self.current_username in self.account_manager.accounts:
+            self.user_data = self.account_manager.accounts[self.current_username].copy()
+        
+        # Update user_data with latest session statistics
+        if self.user_data:
+            self.user_data['total_sessions'] = self.session_data.get('total_sessions', 0)
+            self.user_data['longest_distance'] = self.session_data.get('longest_distance', 0.0)
+        
+        # Update all cards with fresh data
+        if hasattr(self, 'section1_card') and self.section1_card:
+            self.section1_card.update_user_data(self.user_data)
+        
+        if hasattr(self, 'section2_card') and self.section2_card:
+            self.section2_card.update_session_data(self.session_data)
+        
+        if hasattr(self, 'section3_card') and self.section3_card:
+            self.section3_card.update_achievements(self.user_data)
+        
+        # Update header with user name (in case it changed)
+        if hasattr(self, 'header') and self.user_data:
+            user_name = self.user_data.get('name', '') or self.user_data.get('username', 'User')
+            self.header.SetLabel(f"Hello, {user_name}")
+            self.center_header_text()
+        
+        # Force layout refresh
+        self.Layout()
+        self.Refresh()
 
     def load_user_session_data(self, username):
         """Load session data from CSV file for a user"""

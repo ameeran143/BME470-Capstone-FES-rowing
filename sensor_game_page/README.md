@@ -25,7 +25,7 @@ python hardware_test.py
 ```
 
 **What it does:**
-- Tests connection to NI-DAQ device "Dev2"
+- Tests connection to NI-DAQ device "Dev1"
 - Reads all 5 sensor channels (ai16, ai18, ai20, ai21, ai22)
 - Displays real-time voltage values with min/max tracking
 - Identifies stuck sensors or wiring issues

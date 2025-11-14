@@ -180,14 +180,14 @@ class CalibPage(wx.Panel):
         
         try:
             with nidaqmx.Task() as task:
-                # Use same channel configuration as game_page.py: Dev2/ai22 for seat position
-                task.ai_channels.add_ai_voltage_chan("Dev2/ai22",
+                # Use same channel configuration as game_page.py: Dev1/ai22 for seat position
+                task.ai_channels.add_ai_voltage_chan("Dev1/ai22",
                                                      terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
                                                      min_val=0.0, max_val=10.0)
                 data = task.read(number_of_samples_per_channel=1)
                 
-                # Extract voltage value
-                seat_voltage = data[0] if isinstance(data, list) else data
+                # Extract voltage value (matching game_page.py extraction method)
+                seat_voltage = data[0][0] if isinstance(data[0], list) else data[0]
                 
                 # Convert voltage to mm using same conversion factor as game_page.py
                 seat_position_mm = seat_voltage * self.volts_to_mm_factor

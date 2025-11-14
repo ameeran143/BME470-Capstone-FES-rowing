@@ -70,6 +70,10 @@ class MainFrame(wx.Frame):
         # Hide summary page if it exists
         if self.summary_page is not None:
             self.summary_page.Hide()
+        
+        # Refresh dashboard data before showing (to update stats after sessions)
+        self.dashboard_page.refresh_dashboard()
+        
         self.dashboard_page.Show()
         self.current_panel = self.dashboard_page
         self.Refresh()
