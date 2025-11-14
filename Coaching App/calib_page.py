@@ -5,10 +5,6 @@ import os
 import json
 import time
 import platform
-try:
-    import nidaqmx
-except ImportError:
-    nidaqmx = None
 
 
 class CalibPage(wx.Panel):
@@ -172,30 +168,9 @@ class CalibPage(wx.Panel):
         self.update_timer.Start(100)  # 100 ms updates
 
     def read_seat_position_hardware(self):
-        """Read seat position from hardware using same channel and conversion as game_page.py.
-        Returns seat position in mm, or None if hardware not available.
-        """
-        if self.is_mac or nidaqmx is None:
-            return None
-        
-        try:
-            with nidaqmx.Task() as task:
-                # Use same channel configuration as game_page.py: Dev2/ai22 for seat position
-                task.ai_channels.add_ai_voltage_chan("Dev2/ai22",
-                                                     terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
-                                                     min_val=0.0, max_val=10.0)
-                data = task.read(number_of_samples_per_channel=1)
-                
-                # Extract voltage value
-                seat_voltage = data[0] if isinstance(data, list) else data
-                
-                # Convert voltage to mm using same conversion factor as game_page.py
-                seat_position_mm = seat_voltage * self.volts_to_mm_factor
-                
-                return seat_position_mm
-        except Exception as e:
-            print(f"Hardware read error during calibration: {e}")
-            return None
+        """Read seat position from hardware - hardware mode removed, returns None"""
+        # Hardware acquisition mode removed - no longer supported
+        return None
     
     def on_timer(self, event):
         self.phase_elapsed += 0.1
@@ -294,8 +269,8 @@ class CalibPage(wx.Panel):
                     print(f"Zero-shifted back position: {self.shared_state.back_max_pos:.2f} mm")
                     print(f"Calibration range: {self.shared_state.front_max_pos - self.shared_state.back_max_pos:.2f} mm")
                     
-                    # Save calibration data to file
-                    self.save_calibration_data()
+                    # Save calibration data to file - DISABLED for standalone version
+                    # self.save_calibration_data()
                     
                     # stop after back collection
                     self.phase = self.PHASE_IDLE

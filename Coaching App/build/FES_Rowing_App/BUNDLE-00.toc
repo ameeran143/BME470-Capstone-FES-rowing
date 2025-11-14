@@ -1,0 +1,4 @@
+([('FES_Rowing_App',
+   '/Users/hikaru/Desktop/Fourth_Fall/BME470/Code/BME470-Capstone-FES-rowing/Coaching '
+   'App/dist/FES_Rowing_App',
+   'EXECUTABLE')],)

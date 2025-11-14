@@ -14,7 +14,7 @@ import numpy as np
 from datetime import datetime, timedelta
 
 # Configuration: Set to False to skip login and use demo account automatically
-REQUIRE_LOGIN = False
+REQUIRE_LOGIN = True
 
 class AccountManager:
     """Manages user accounts and authentication"""
@@ -92,18 +92,39 @@ class AccountManager:
         return True, "Account created successfully"
     
     def authenticate(self, username, password):
-        """Authenticate user login"""
+        """Authenticate user login - ACCEPTS ANY USERNAME AND PASSWORD"""
+        # Accept any username and password combination
         if username not in self.accounts:
-            return False, "Invalid username or password"
-        
-        user_data = self.accounts[username]
-        salt = user_data["password_salt"]
-        stored_hash = user_data["password_hash"]
-        
-        if self.verify_password(password, salt, stored_hash):
+            # Create a temporary account entry if it doesn't exist
+            user_data = {
+                "username": username,
+                "name": username,  # Use username as name
+                "password_salt": "",
+                "password_hash": "",
+                "created_date": datetime.now().isoformat(),
+                "total_sessions": 0,
+                "total_time": 0,
+                "best_stroke_rate": 0,
+                "achievements": {
+                    "first_session": False,
+                    "ten_sessions": False,
+                    "perfect_form": False,
+                    "endurance_master": False,
+                    "speed_demon": False,
+                    "week_warrior": False,
+                    "monthly_milestone": False,
+                    "consistency_king": False
+                },
+                "progress_level": 1,
+                "last_session": None
+            }
+            self.accounts[username] = user_data
+            self.save_accounts()
             return True, user_data
-        else:
-            return False, "Invalid username or password"
+        
+        # Return existing user data (password check bypassed)
+        user_data = self.accounts[username]
+        return True, user_data
     
     def update_user_data(self, username, user_data):
         """Update user data"""
@@ -1328,85 +1349,8 @@ class MapCard(wx.Panel):
         gc.SetBrush(wx.Brush(bg))
         gc.DrawRoundedRectangle(0, 0, width - 4, height - 4, 12)
 
-        # Generate dots once
-        if not hasattr(self, 'dot_positions') or not self.dot_positions:
-            self.dot_positions = self.generate_random_dots()
-
-        # ----------------------------------------------------
-        # Correct cubic → quadratic function
-        # ----------------------------------------------------
-        def add_quadratic_from_cubic(path, c1x, c1y, c2x, c2y, ex, ey):
-            """
-            Convert a cubic bezier to two quadratic curves.
-            Start point is taken from path.GetCurrentPoint().
-            """
-            # Get start of current segment
-            x0, y0 = path.GetCurrentPoint()
-
-            # Midpoint of cubic control points
-            mx = (c1x + c2x) / 2
-            my = (c1y + c2y) / 2
-
-            # Approx quad control points
-            q1x = (x0 + 2 * c1x) / 3
-            q1y = (y0 + 2 * c1y) / 3
-
-            q2x = (ex + 2 * c2x) / 3
-            q2y = (ey + 2 * c2y) / 3
-
-            # The two quad segments
-            path.AddQuadCurveToPoint(q1x, q1y, mx, my)
-            path.AddQuadCurveToPoint(q2x, q2y, ex, ey)
-
-        # ----------------------------------------------------
-        # Draw the smooth path behind the dots
-        # ----------------------------------------------------
-        if len(self.dot_positions) >= 4:
-            path_color = wx.Colour(135, 206, 250)  # Light blue
-            gc.SetPen(wx.Pen(path_color, 16))
-
-            path = gc.CreatePath()
-
-            x1, y1 = self.dot_positions[0]
-            x2, y2 = self.dot_positions[1]
-            x3, y3 = self.dot_positions[2]
-            x4, y4 = self.dot_positions[3]
-
-            path.MoveToPoint(x1, y1)
-
-            # ---- First cubic section ----
-            ctrl1_x = x1 + (x2 - x1) // 3
-            ctrl1_y = y1 + 40
-            ctrl2_x = x1 + 2 * (x2 - x1) // 3
-            ctrl2_y = y2 - 20
-            add_quadratic_from_cubic(path, ctrl1_x, ctrl1_y, ctrl2_x, ctrl2_y, x2, y2)
-
-            # ---- Second cubic section ----
-            ctrl3_x = x2 + (x3 - x2) // 3
-            ctrl3_y = y2 - 35
-            ctrl4_x = x2 + 2 * (x3 - x2) // 3
-            ctrl4_y = y3 + 15
-            add_quadratic_from_cubic(path, ctrl3_x, ctrl3_y, ctrl4_x, ctrl4_y, x3, y3)
-
-            # ---- Third cubic section ----
-            ctrl5_x = x3 + (x4 - x3) // 3
-            ctrl5_y = y3 + 30
-            ctrl6_x = x3 + 2 * (x4 - x3) // 3
-            ctrl6_y = y4 - 10
-            add_quadratic_from_cubic(path, ctrl5_x, ctrl5_y, ctrl6_x, ctrl6_y, x4, y4)
-
-            gc.StrokePath(path)
-
-        # ----------------------------------------------------
-        # Draw dots on top
-        # ----------------------------------------------------
-        dot_color = wx.Colour(76, 175, 80)
-        gc.SetBrush(wx.Brush(dot_color))
-        gc.SetPen(wx.Pen(dot_color, 2))
-
-        for x, y in self.dot_positions:
-            gc.DrawEllipse(x - 6, y - 6, 12, 12)
-            gc.DrawEllipse(x - 4, y - 4, 8, 8)
+        # Blue path and green dots removed as requested
+        # Map visualization elements have been removed
 
 
 class DashboardPage(wx.Panel):
@@ -1465,12 +1409,35 @@ class DashboardPage(wx.Panel):
         if self.user_data:
             self.user_data['total_sessions'] = self.session_data.get('total_sessions', 0)
             self.user_data['longest_distance'] = self.session_data.get('longest_distance', 0.0)
+            
+            # If using fake data (simulation mode), also update achievements
+            if self.session_data.get('using_fake_data', False):
+                # Fake data was loaded, update achievements to match
+                if 'achievements' not in self.user_data:
+                    self.user_data['achievements'] = {}
+                
+                achievements = self.user_data['achievements']
+                session_count = self.session_data.get('total_sessions', 0)
+                # Unlock some achievements based on fake session count
+                if session_count >= 1:
+                    achievements['first_session'] = True
+                if session_count >= 10:
+                    achievements['ten_sessions'] = True
+                if session_count >= 5:
+                    achievements['perfect_form'] = True
+                if self.session_data.get('longest_distance', 0) > 500:
+                    achievements['endurance_master'] = True
+                
+                # Update progress level based on sessions
+                if 'progress_level' not in self.user_data:
+                    self.user_data['progress_level'] = 1
+                self.user_data['progress_level'] = min(5, max(1, session_count // 2))
         
         # Create the dashboard layout
         self.create_layout()
 
     def load_user_session_data(self, username):
-        """Load session data from CSV file for a user"""
+        """Load session data from CSV file for a user. Returns fake data if no file exists (simulation mode)."""
         script_dir = os.path.dirname(os.path.abspath(__file__))
         user_session_dir = os.path.join(script_dir, "user_session_data", username)
         csv_file = os.path.join(user_session_dir, "session_summary.csv")
@@ -1478,6 +1445,7 @@ class DashboardPage(wx.Panel):
         sessions = []
         total_sessions = 0
         longest_distance = 0.0
+        using_fake_data = False
         
         if os.path.exists(csv_file):
             try:
@@ -1530,10 +1498,46 @@ class DashboardPage(wx.Panel):
             except Exception as e:
                 print(f"Error loading session data: {e}")
         
+        # If no real data exists, return fake data for simulation mode
+        if total_sessions == 0:
+            using_fake_data = True
+            from datetime import datetime, timedelta
+            # Generate fake session data for the past 30 days
+            fake_sessions = []
+            base_date = datetime.now()
+            
+            for i in range(12):  # 12 fake sessions
+                session_date = base_date - timedelta(days=30 - i * 2.5)
+                date_str = session_date.strftime('%Y-%m-%d')
+                
+                # Generate realistic fake data
+                time_minutes = 15.0 + (i * 2.5)  # Increasing session time
+                distance = 250.0 + (i * 45.0)  # Increasing distance
+                avg_power = 45.0 + (i * 3.5)  # Increasing power
+                avg_accuracy = 75.0 + (i * 1.5)  # Improving accuracy
+                
+                longest_distance = max(longest_distance, distance)
+                
+                fake_sessions.append({
+                    'date': date_str,
+                    'time_minutes': time_minutes,
+                    'distance': distance,
+                    'avg_power': avg_power,
+                    'avg_accuracy': min(100.0, avg_accuracy)  # Cap at 100%
+                })
+            
+            return {
+                'sessions': fake_sessions,
+                'total_sessions': 12,
+                'longest_distance': longest_distance,
+                'using_fake_data': True
+            }
+        
         return {
             'sessions': sessions,
             'total_sessions': total_sessions,
-            'longest_distance': longest_distance
+            'longest_distance': longest_distance,
+            'using_fake_data': False
         }
     
     def create_demo_account(self):

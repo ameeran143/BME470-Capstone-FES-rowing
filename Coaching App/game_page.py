@@ -20,7 +20,6 @@ import wx
 import time
 import wx.grid as gridlib
 from button import CustomButton
-import nidaqmx
 # import pygame
 import csv
 import math
@@ -88,7 +87,7 @@ class SharedStats:
         # Hardware testing - Auto-detect OS
         import platform
         self.is_mac = platform.system() == 'Darwin'
-        self.hardware_mode = not self.is_mac  # Disable hardware mode on Mac
+        self.hardware_mode = False  # Hardware mode removed
         self.hardware_connected = False
         self.last_hardware_check = 0
         
@@ -138,33 +137,7 @@ class SharedStats:
         # Mode will be detected when reset_game() is called
         # Hardware task initialization will happen after mode detection in reset_game()
     
-    def test_hardware_connection(self):
-        """Test if NI-DAQ device is connected and responsive"""
-        if self.is_mac:
-            return False  # Hardware not supported on macOS
-        
-        try:
-            with nidaqmx.Task() as task:
-                # Test with the new channel mapping - add each channel individually
-                task.ai_channels.add_ai_voltage_chan("Dev2/ai16",
-                                                     terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
-                                                     min_val=0.0, max_val=10.0)
-                task.ai_channels.add_ai_voltage_chan("Dev2/ai18",
-                                                     terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
-                                                     min_val=0.0, max_val=10.0)
-                task.ai_channels.add_ai_voltage_chan("Dev2/ai20",
-                                                     terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
-                                                     min_val=0.0, max_val=10.0)
-                task.ai_channels.add_ai_voltage_chan("Dev2/ai21",
-                                                     terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
-                                                     min_val=0.0, max_val=10.0)
-                task.ai_channels.add_ai_voltage_chan("Dev2/ai22",
-                                                     terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
-                                                     min_val=0.0, max_val=10.0)
-                return True
-        except Exception as e:
-            print(f"Hardware connection test failed: {e}")
-            return False
+    # Hardware acquisition mode removed - no longer supported
     
     def find_csv_recordings(self):
         """Find available CSV recording files in Test_Recordings directory"""
@@ -235,66 +208,38 @@ class SharedStats:
     
     def detect_and_set_mode(self):
         """Detect and set the appropriate mode based on priority:
-        1. Hardware (if connected)
-        2. CSV playback (if CSV files found)
-        3. Simulation (fallback)
+        1. CSV playback (if CSV files found)
+        2. Simulation (fallback)
+        Hardware mode has been removed.
         """
         # Check for manual override
         if self.mode_override:
             mode = self.mode_override
+            # Ensure hardware mode is not used
+            if mode == "hardware":
+                mode = "simulation"
         else:
-            # Auto-detect mode based on priority
-            # Priority 1: Hardware
-            if not self.is_mac and self.test_hardware_connection():
-                mode = "hardware"
-            else:
-                # Priority 2: CSV playback - check for default CSV first
-                project_root = os.path.dirname(os.path.dirname(__file__))
-                default_csv_path = os.path.join(project_root, "Test_Recordings", "hikaru", "sensor_data.csv")
-                
-                if os.path.exists(default_csv_path):
-                    try:
-                        self.load_sensor_csv(default_csv_path)
-                        mode = "csv_playback"
-                    except Exception as e:
-                        print(f"⚠️  Failed to load CSV: {e}")
-                        mode = "simulation"
-                else:
-                    # Priority 3: Simulation (default CSV not found)
+            # Auto-detect mode - CSV playback or simulation
+            # Priority 1: CSV playback - check for default CSV first
+            project_root = os.path.dirname(os.path.dirname(__file__))
+            default_csv_path = os.path.join(project_root, "Test_Recordings", "hikaru", "sensor_data.csv")
+            
+            if os.path.exists(default_csv_path):
+                try:
+                    self.load_sensor_csv(default_csv_path)
+                    mode = "csv_playback"
+                except Exception as e:
+                    print(f"⚠️  Failed to load CSV: {e}")
                     mode = "simulation"
+            else:
+                # Priority 2: Simulation (default CSV not found)
+                mode = "simulation"
         
         # Set the mode
         self.current_mode = mode
         
-        # Load calibration data only for hardware mode
-        if mode == "hardware":
-            calib_loaded = self.load_calibration_data()
-            if not calib_loaded:
-                # Display error message if calibration data not found
-                import wx
-                error_msg = (
-                    "⚠️  CALIBRATION DATA NOT FOUND\n\n"
-                    "Hardware acquisition mode requires calibration data.\n"
-                    "Please run calibration first before using hardware mode.\n\n"
-                    "The system will fall back to simulation mode."
-                )
-                # Show wx message box if wx is available
-                try:
-                    wx.MessageBox(error_msg, "Calibration Required", wx.OK | wx.ICON_WARNING)
-                except:
-                    pass
-                # Fall back to simulation mode
-                mode = "simulation"
-                self.current_mode = mode
-                self.hardware_mode = False
-                self.hardware_connected = False
-        
-        # Configure mode-specific settings
-        if mode == "hardware":
-            self.hardware_mode = True
-            self.anc_playback_mode = False
-            self.hardware_connected = True
-        elif mode == "csv_playback":
+        # Configure mode-specific settings (hardware mode removed)
+        if mode == "csv_playback":
             self.hardware_mode = False
             self.anc_playback_mode = True
             self.hardware_connected = False
@@ -304,7 +249,8 @@ class SharedStats:
             self.hardware_connected = False
     
     def set_mode(self, mode, csv_path=None):
-        """Manually set the mode. Modes: 'hardware', 'csv_playback', 'simulation', or None (auto-detect)
+        """Manually set the mode. Modes: 'csv_playback', 'simulation', or None (auto-detect)
+        Hardware mode has been removed.
         
         Args:
             mode: Mode string or None for auto-detect
@@ -314,32 +260,13 @@ class SharedStats:
             self.mode_override = None
             self.detect_and_set_mode()
         elif mode == "hardware":
-            if self.is_mac:
-                return False
-            if not self.test_hardware_connection():
-                return False
-            # Check for calibration data
-            calib_loaded = self.load_calibration_data()
-            if not calib_loaded:
-                # Display error message if calibration data not found
-                import wx
-                error_msg = (
-                    "⚠️  CALIBRATION DATA NOT FOUND\n\n"
-                    "Hardware acquisition mode requires calibration data.\n"
-                    "Please run calibration first before using hardware mode.\n\n"
-                    "Cannot switch to hardware mode."
-                )
-                # Show wx message box if wx is available
-                try:
-                    wx.MessageBox(error_msg, "Calibration Required", wx.OK | wx.ICON_WARNING)
-                except:
-                    pass
-                return False
-            self.mode_override = "hardware"
-            self.current_mode = "hardware"
-            self.hardware_mode = True
+            # Hardware mode removed - fall back to simulation
+            print("⚠️  Hardware mode is no longer supported. Using simulation mode instead.")
+            self.mode_override = "simulation"
+            self.current_mode = "simulation"
+            self.hardware_mode = False
             self.anc_playback_mode = False
-            self.hardware_connected = True
+            self.hardware_connected = False
             return True
         elif mode == "csv_playback":
             if csv_path:
@@ -380,20 +307,36 @@ class SharedStats:
             return False
     
     def convert_raw_to_scale(self, raw_pos):
-        if raw_pos:
-            # Use CSV min/max if in CSV playback mode, otherwise use calibration values
-            if self.current_mode == "csv_playback" and self.csv_seat_min is not None and self.csv_seat_max is not None:
-                # Use CSV-derived min/max values
+        """Convert raw seat position to 0-100 scale. Uses default values, not calibration values."""
+        if raw_pos is None:
+            return None
+        
+        # Use default values (not calibration values) as per user request
+        default_front_max = 520
+        default_back_max = 43
+        
+        # Use CSV min/max if in CSV playback mode, otherwise use default values
+        if self.current_mode == "csv_playback" and self.csv_seat_min is not None and self.csv_seat_max is not None:
+            # Use CSV-derived min/max values
+            if self.csv_seat_min != self.csv_seat_max:
                 converted = 100 - (raw_pos - self.csv_seat_max) / (self.csv_seat_min - self.csv_seat_max) * 100
             else:
-                # Use calibration values (for hardware mode or simulation)
-                converted = 100 - (raw_pos - self.front_max_pos) / (self.back_max_pos - self.front_max_pos) * 100
-            return converted
-        return None
+                converted = 0
+        else:
+            # Use default values (not calibration values)
+            if default_back_max != default_front_max:
+                converted = 100 - (raw_pos - default_front_max) / (default_back_max - default_front_max) * 100
+            else:
+                converted = 0
+        return converted
     
     def convert_scale_to_raw(self, converted):
+        """Convert 0-100 scale to raw seat position. Uses default values, not calibration values."""
         if converted is not None:
-            raw_pos = self.front_max_pos + (100 - converted) / 100 * (self.back_max_pos - self.front_max_pos)
+            # Use default values (not calibration values) as per user request
+            default_front_max = 520
+            default_back_max = 43
+            raw_pos = default_front_max + (100 - converted) / 100 * (default_back_max - default_front_max)
             return raw_pos
         return None
     
@@ -972,111 +915,7 @@ class SharedStats:
                 # Fallback to simulation
                 self.anc_playback_mode = False
 
-        # Hardware sensor data collection (Windows/Linux only)
-        if not self.is_mac and self.hardware_mode:
-            # Check if hardware task was successfully initialized
-            if self.hardware_task is None:
-                print("❌ Hardware mode enabled but task initialization failed")
-                print("   Sensor mode is not available")
-                self.hardware_connected = False
-                return  # Do not fall back to simulation
-            
-            try:
-                # Use persistent task (created in __init__) - matches hardware_test_safe.py approach
-                data = self.hardware_task.read(number_of_samples_per_channel=1)
-                
-                # Extract single values from nested list structure
-                left_foot_voltage = data[0][0] if isinstance(data[0], list) else data[0]
-                right_foot_voltage = data[1][0] if isinstance(data[1], list) else data[1]
-                handle_force_voltage = data[2][0] if isinstance(data[2], list) else data[2]
-                handle_position_voltage = data[3][0] if isinstance(data[3], list) else data[3]
-                seat_position_voltage = data[4][0] if isinstance(data[4], list) else data[4]
-                
-                # Estimate sampling rate from timing
-                current_time = time.time()
-                if not hasattr(self, 'temp_time') or not self.temp_time:
-                    self.temp_time = []
-                self.temp_time.append(current_time)
-                
-                # Update sampling rate estimate (use last 10 samples)
-                if len(self.temp_time) > 1:
-                    recent_intervals = []
-                    for i in range(max(1, len(self.temp_time) - 10), len(self.temp_time)):
-                        if i > 0:
-                            dt = self.temp_time[i] - self.temp_time[i-1]
-                            if dt > 0:
-                                recent_intervals.append(dt)
-                    if recent_intervals:
-                        avg_interval = sum(recent_intervals) / len(recent_intervals)
-                        if avg_interval > 0:
-                            self.hardware_sampling_rate = 1.0 / avg_interval
-                
-                # Process hardware data using the same method as CSV playback
-                # This applies Butterworth filter, converts to physical units, and zero-shifts
-                handle_force_N, handle_position_mm, seat_position_mm = self._process_hardware_data(
-                    handle_force_voltage, handle_position_voltage, seat_position_voltage
-                )
-                
-                # Store processed values (same format as CSV playback)
-                self.L_foot_force.append(left_foot_voltage)  # Store raw voltage for foot sensors
-                self.R_foot_force.append(right_foot_voltage)  # Store raw voltage for foot sensors
-                self.handle_force.append(handle_force_N)  # Processed force in Newtons
-                self.handle_position.append(handle_position_mm)  # Processed position in mm
-                self.raw_seat_pos.append(seat_position_mm)  # Processed seat position in mm (for compatibility)
-                self.seat_position_mm.append(seat_position_mm)  # Store explicitly in mm (already zero-shifted)
-                
-                # Calculate release and press positions for hardware mode
-                # Use calibration values (front_max_pos, back_max_pos) to determine max seat position
-                # Since seat_position_mm is zero-shifted, max = calibrated range = front_max_pos - back_max_pos
-                # Calibration data is required for hardware mode (checked in detect_and_set_mode)
-                if self.front_max_pos > self.back_max_pos:
-                    # Use calibrated range as max seat position (after zero-shifting)
-                    max_seat_calibrated = self.front_max_pos - self.back_max_pos
-                    self.seat_position_release = max_seat_calibrated * 0.15
-                    self.seat_position_press = max_seat_calibrated - 140
-                else:
-                    # This should not happen if calibration check worked, but handle gracefully
-                    # Use a default calculation based on current data
-                    if len(self.seat_position_mm) >= 10:
-                        import numpy as np
-                        seat_array = np.array(self.seat_position_mm)
-                        max_seat = np.max(seat_array)
-                        self.seat_position_release = max_seat * 0.15
-                        self.seat_position_press = max_seat - 140
-                    else:
-                        # Not enough data yet, use defaults
-                        self.seat_position_release = 0.0
-                        self.seat_position_press = 100.0
-                
-                # Convert to 0-100 scale for compatibility (using processed mm values)
-                if self.raw_seat_pos:
-                    # Note: The 0-100 scale conversion may need calibration adjustment
-                    # For now, use the same conversion as before but with mm values
-                    if self.raw_seat_pos[-1] <= self.back_max_pos:
-                        self.raw_seat_pos[-1] = self.back_max_pos
-                    elif self.raw_seat_pos[-1] >= self.front_max_pos:
-                        self.raw_seat_pos[-1] = self.front_max_pos
-                    self.converted_seat_position.append(self.convert_raw_to_scale(self.raw_seat_pos[-1]))
-                
-                self.hardware_connected = True
-
-                # Update power using processed values (same formula as CSV playback)
-                if len(self.handle_force) > 1 and len(self.handle_position) > 1 and len(self.temp_time) > 1:
-                    # Power calculation: avg_force * delta_handle / dt / 1000
-                    # handle_force is in N, handle_position is in mm, need to convert mm to m
-                    avg_force = (self.handle_force[-1] + self.handle_force[-2]) / 2.0  # N
-                    delta_handle = abs(self.handle_position[-1] - self.handle_position[-2])  # mm
-                    dt = self.temp_time[-1] - self.temp_time[-2]  # seconds
-                    if dt > 0:
-                        power_val = avg_force * delta_handle / dt / 1000.0  # W (divide by 1000 to convert mm->m)
-                        self.temp_power.append(power_val)
-                        self.avg_power.append(sum(self.temp_power)/len(self.temp_power))
-                    
-                return  # Exit early if hardware read was successful
-            except Exception as e:
-                print(f"❌ Error reading from sensors: {e}")
-                self.hardware_connected = False
-                return  # Do not fall back to simulation
+        # Hardware sensor data collection removed - no longer supported
         
         # Simulation mode (always used on macOS, fallback for Windows/Linux, unless CSV playback)
         if not hasattr(self, 'temp_time'):
@@ -1092,16 +931,28 @@ class SharedStats:
         #         self.stroke_rate.append(60/round(self.stroke_duration[-1]))
 
         # convert raw seat position to 0-100 scale
-        if self.raw_seat_pos:
-            if self.raw_seat_pos[-1] <= self.back_max_pos:
-                self.raw_seat_pos[-1] = self.back_max_pos
-            elif self.raw_seat_pos[-1] >= self.front_max_pos:
-                self.raw_seat_pos[-1] = self.front_max_pos
-            self.converted_seat_position.append(self.convert_raw_to_scale(self.raw_seat_pos[-1]))
+        # Use default values (not calibration values) as per user request
+        default_front_max = 520
+        default_back_max = 43
+        
+        if self.raw_seat_pos and len(self.raw_seat_pos) > 0:
+            raw_pos = self.raw_seat_pos[-1]
+            if raw_pos is not None:
+                # Clamp to default range
+                if raw_pos <= default_back_max:
+                    self.raw_seat_pos[-1] = default_back_max
+                elif raw_pos >= default_front_max:
+                    self.raw_seat_pos[-1] = default_front_max
+                
+                # Convert to scale using default values
+                converted = self.convert_raw_to_scale(self.raw_seat_pos[-1])
+                if converted is not None:
+                    self.converted_seat_position.append(converted)
         
         # update score and misses
         if self.converted_seat_position:
-            if self.converted_seat_position[-1] <= 0:
+            # Check if value is not None before comparison
+            if self.converted_seat_position[-1] is not None and self.converted_seat_position[-1] <= 0:
                 self.same_stroke = False
         
         if len(self.switch_press) > 1:
@@ -1146,15 +997,9 @@ class SharedStats:
         self.stats_file_path = None
     
     def cleanup_hardware(self):
-        """Clean up hardware task on app exit"""
-        if self.hardware_task is not None:
-            try:
-                self.hardware_task.close()
-                print("✅ Hardware task closed successfully")
-            except Exception as e:
-                print(f"⚠️  Error closing hardware task: {e}")
-            finally:
-                self.hardware_task = None
+        """Clean up hardware task on app exit - hardware mode removed"""
+        # Hardware mode removed - no cleanup needed
+        pass
     
     def save_session_summary(self):
         """Save session summary to CSV file (one file per user, append rows)"""
@@ -1223,7 +1068,9 @@ class SharedStats:
         }
     
     def export_session_stats(self):
-        """Export session statistics to CSV file when back button is pressed."""
+        """Export session statistics to CSV file when back button is pressed. DISABLED for standalone version."""
+        # DISABLED: Data saving disabled for standalone .exe version
+        return
         try:
             # Calculate statistics
             # Total duration (in minutes)
@@ -1834,32 +1681,7 @@ class GamePage(wx.Panel):
         # Detect and set mode when game page is activated (only if not already set)
         if self.shared_state.current_mode is None:
             self.shared_state.detect_and_set_mode()
-            # Initialize hardware task if in hardware mode (after mode detection)
-            if self.shared_state.hardware_mode and self.shared_state.hardware_task is None:
-                try:
-                    self.shared_state.hardware_task = nidaqmx.Task()
-                    # Configure channels with RSE terminal configuration and 0-10V range (matching hardware_test_safe.py)
-                    self.shared_state.hardware_task.ai_channels.add_ai_voltage_chan("Dev2/ai16",
-                                                                                   terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
-                                                                                   min_val=0.0, max_val=10.0)   # Left Foot Force
-                    self.shared_state.hardware_task.ai_channels.add_ai_voltage_chan("Dev2/ai18",
-                                                                                   terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
-                                                                                   min_val=0.0, max_val=10.0)   # Right Foot Force
-                    self.shared_state.hardware_task.ai_channels.add_ai_voltage_chan("Dev2/ai20",
-                                                                                   terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
-                                                                                   min_val=0.0, max_val=10.0)   # Handle Force
-                    self.shared_state.hardware_task.ai_channels.add_ai_voltage_chan("Dev2/ai21",
-                                                                                   terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
-                                                                                   min_val=0.0, max_val=10.0)   # Front Potentiometer (Handle Position)
-                    self.shared_state.hardware_task.ai_channels.add_ai_voltage_chan("Dev2/ai22",
-                                                                                   terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
-                                                                                   min_val=0.0, max_val=10.0)   # Back Potentiometer (Seat Position)
-                    self.shared_state.hardware_task.timing.cfg_samp_clk_timing(rate=1000.0, sample_mode=nidaqmx.constants.AcquisitionType.CONTINUOUS)
-                    self.shared_state.hardware_task.start()
-                    print("Hardware task initialized successfully")
-                except Exception as e:
-                    print(f"Failed to initialize hardware task: {e}")
-                    self.shared_state.hardware_mode = False
+            # Hardware mode removed - no initialization needed
         
         self.stats_panel.reset()
         self.rowing_scene_panel.reset()
@@ -1885,8 +1707,17 @@ class GamePage(wx.Panel):
         # Stop writing stats
         self.shared_state.stop_writing_stats()
         
-        # Save session summary to CSV
-        summary_data = self.shared_state.save_session_summary()
+        # Save session summary to CSV - DISABLED for standalone version
+        # summary_data = self.shared_state.save_session_summary()
+        # Create summary data without saving to file
+        summary_data = {
+            'total_time': self.shared_state.time_elapsed,
+            'avg_power': sum(self.shared_state.avg_power) / len(self.shared_state.avg_power) if self.shared_state.avg_power else 0.0,
+            'total_distance': self.shared_state.total_distance,
+            'avg_accuracy': (self.shared_state.score / (self.shared_state.score + self.shared_state.misses) * 100) if (self.shared_state.score + self.shared_state.misses) > 0 else 0.0,
+            'score': self.shared_state.score,
+            'misses': self.shared_state.misses
+        }
         
         # Switch to summary page
         parent = self.GetParent()

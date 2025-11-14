@@ -1,0 +1,37 @@
+name: Build Windows Executable
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:  # Allows manual triggering from GitHub UI
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install wxpython matplotlib numpy scipy pillow pyinstaller
+    
+    - name: Build executable
+      working-directory: Coaching App
+      run: |
+        python build_exe.py
+    
+    - name: Upload artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: FES_Rowing_App_Windows
+        path: Coaching App/dist/FES_Rowing_App.exe
+
