@@ -41,7 +41,7 @@ class SensorGameFrame(wx.Frame):
                     "Failed to connect to NI-DAQ hardware.\n\n"
                     "Troubleshooting:\n"
                     "• Check NI-DAQ device is connected via USB/Ethernet\n"
-                    "• Verify device name is 'Dev2' in NI MAX\n"
+                    "• Verify device name is 'Dev1' in NI MAX\n"
                     "• Install/update NI-DAQmx drivers\n"
                     "• Try running as administrator\n"
                     "• Ensure you're on Windows or Linux (macOS not supported)\n\n"

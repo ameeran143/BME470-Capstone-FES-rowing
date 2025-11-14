@@ -3,7 +3,7 @@
 Sensor Reader Module for Real-Time Hardware Data Collection
 Reads sensor data directly from NI-DAQ hardware and provides it to the game
 
-SENSOR CHANNEL MAPPING (NI-DAQ Dev2):
+SENSOR CHANNEL MAPPING (NI-DAQ Dev1):
 ======================================
 ai16: Left Foot Force Sensor
 ai18: Right Foot Force Sensor
@@ -20,7 +20,7 @@ import platform
 class SensorReader:
     def __init__(self):
         """Initialize hardware sensor reader"""
-        self.device_name = "Dev2"
+        self.device_name = "Dev1"
         self.is_connected = False
         self.last_error = None
         self.connection_attempts = 0
@@ -52,9 +52,9 @@ class SensorReader:
                 # Test with all 5 channels - using optimized voltage ranges for better ADC resolution
                 task.ai_channels.add_ai_voltage_chan(f"{self.device_name}/ai16", min_val=7.0, max_val=9.5)   # Left Foot Force
                 task.ai_channels.add_ai_voltage_chan(f"{self.device_name}/ai18", min_val=7.0, max_val=9.0)   # Right Foot Force
-                task.ai_channels.add_ai_voltage_chan(f"{self.device_name}/ai20", min_val=8.5, max_val=10.5)  # Handle Force
-                task.ai_channels.add_ai_voltage_chan(f"{self.device_name}/ai21", min_val=8.5, max_val=11.0)  # Handle Position
-                task.ai_channels.add_ai_voltage_chan(f"{self.device_name}/ai22", min_val=-10.0, max_val=10.0)  # Seat Position
+                task.ai_channels.add_ai_voltage_chan(f"{self.device_name}/ai20", min_val=0, max_val=10)  # Handle Force
+                task.ai_channels.add_ai_voltage_chan(f"{self.device_name}/ai21", min_val=0, max_val=10)  # Handle Position
+                task.ai_channels.add_ai_voltage_chan(f"{self.device_name}/ai22", min_val=0, max_val=10.0)  # Seat Position
                 # Try reading one sample to verify connection
                 task.read(number_of_samples_per_channel=1)
                 
@@ -120,9 +120,9 @@ class SensorReader:
                 # Ranges based on actual sensor output measurements (with safety margin)
                 task.ai_channels.add_ai_voltage_chan(f"{self.device_name}/ai16", min_val=7.0, max_val=9.5)   # Left Foot Force
                 task.ai_channels.add_ai_voltage_chan(f"{self.device_name}/ai18", min_val=7.0, max_val=9.0)   # Right Foot Force
-                task.ai_channels.add_ai_voltage_chan(f"{self.device_name}/ai20", min_val=8.5, max_val=10.5)  # Handle Force
-                task.ai_channels.add_ai_voltage_chan(f"{self.device_name}/ai21", min_val=8.5, max_val=11.0)  # Handle Position
-                task.ai_channels.add_ai_voltage_chan(f"{self.device_name}/ai22", min_val=-10.0, max_val=10.0)  # Seat Position
+                task.ai_channels.add_ai_voltage_chan(f"{self.device_name}/ai20", min_val=0, max_val=10)  # Handle Force
+                task.ai_channels.add_ai_voltage_chan(f"{self.device_name}/ai21", min_val=0, max_val=10)  # Handle Position
+                task.ai_channels.add_ai_voltage_chan(f"{self.device_name}/ai22", min_val=0, max_val=10.0)  # Seat Position
                 
                 # Read one sample per channel
                 data = task.read(number_of_samples_per_channel=1)

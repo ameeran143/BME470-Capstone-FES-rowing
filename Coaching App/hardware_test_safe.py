@@ -3,7 +3,7 @@
 Hardware Testing Utility for FES-Rowing Application
 Run this script to test sensor connections before using the main application.
 
-SENSOR CHANNEL MAPPING (NI-DAQ Dev2):
+SENSOR CHANNEL MAPPING (NI-DAQ Dev1):
 ======================================
 ai0-ai15: [UNUSED]
 ai16: Left Foot Force Sensor
@@ -23,11 +23,11 @@ import statistics
 
 # Sensor channel mapping
 SENSORS = {
-    "1": {"name": "Left Foot Force Sensor", "channel": "Dev2/ai16"},
-    "2": {"name": "Right Foot Force Sensor", "channel": "Dev2/ai18"},
-    "3": {"name": "Handle Force Sensor", "channel": "Dev2/ai20"},
-    "4": {"name": "Front Potentiometer (Handle Position)", "channel": "Dev2/ai21"},
-    "5": {"name": "Back Potentiometer (Seat Position)", "channel": "Dev2/ai22"},
+    "1": {"name": "Left Foot Force Sensor", "channel": "Dev1/ai16"},
+    "2": {"name": "Right Foot Force Sensor", "channel": "Dev1/ai18"},
+    "3": {"name": "Handle Force Sensor", "channel": "Dev1/ai20"},
+    "4": {"name": "Front Potentiometer (Handle Position)", "channel": "Dev1/ai21"},
+    "5": {"name": "Back Potentiometer (Seat Position)", "channel": "Dev1/ai22"},
 }
 
 def test_hardware_connection():
@@ -35,12 +35,12 @@ def test_hardware_connection():
     try:
         with nidaqmx.Task() as task:
             # Test with the new channel mapping - add each channel individually
-            task.ai_channels.add_ai_voltage_chan("Dev2/ai16")
-            task.ai_channels.add_ai_voltage_chan("Dev2/ai18") 
-            task.ai_channels.add_ai_voltage_chan("Dev2/ai20")
-            task.ai_channels.add_ai_voltage_chan("Dev2/ai21")
-            task.ai_channels.add_ai_voltage_chan("Dev2/ai22")
-            print("✅ NI-DAQ device 'Dev2' found and accessible")
+            task.ai_channels.add_ai_voltage_chan("Dev1/ai16")
+            task.ai_channels.add_ai_voltage_chan("Dev1/ai18") 
+            task.ai_channels.add_ai_voltage_chan("Dev1/ai20")
+            task.ai_channels.add_ai_voltage_chan("Dev1/ai21")
+            task.ai_channels.add_ai_voltage_chan("Dev1/ai22")
+            print("✅ NI-DAQ device 'Dev1' found and accessible")
             return True
     except Exception as e:
         print(f"❌ Hardware connection failed: {e}")
@@ -68,19 +68,19 @@ def test_sensor_readings():
         # Configure channels with explicit terminal configuration (RSE - Referenced Single-Ended)
         # This matches typical Cortex configuration for single-ended sensors
         # RSE uses AI GND as reference, which is standard for potentiometers and load cells
-        task.ai_channels.add_ai_voltage_chan("Dev2/ai16", 
+        task.ai_channels.add_ai_voltage_chan("Dev1/ai16", 
                                              terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
                                              min_val=0.0, max_val=10.0)   # Left Foot Force
-        task.ai_channels.add_ai_voltage_chan("Dev2/ai18",
+        task.ai_channels.add_ai_voltage_chan("Dev1/ai18",
                                              terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
                                              min_val=0.0, max_val=10.0)   # Right Foot Force
-        task.ai_channels.add_ai_voltage_chan("Dev2/ai20",
+        task.ai_channels.add_ai_voltage_chan("Dev1/ai20",
                                              terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
                                              min_val=0.0, max_val=10.0)   # Handle Force
-        task.ai_channels.add_ai_voltage_chan("Dev2/ai21",
+        task.ai_channels.add_ai_voltage_chan("Dev1/ai21",
                                              terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
                                              min_val=0.0, max_val=10.0)   # Handle Position
-        task.ai_channels.add_ai_voltage_chan("Dev2/ai22",
+        task.ai_channels.add_ai_voltage_chan("Dev1/ai22",
                                              terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
                                              min_val=0.0, max_val=10.0)   # Seat Position (0-10V as in Cortex)
         
@@ -257,7 +257,7 @@ def main():
     if not test_hardware_connection():
         print("\n💡 Troubleshooting tips:")
         print("  - Check NI-DAQ device is connected via USB/Ethernet")
-        print("  - Verify device name is 'Dev2' in NI MAX")
+        print("  - Verify device name is 'Dev1' in NI MAX")
         print("  - Install/update NI-DAQmx drivers")
         print("  - Try running as administrator")
         sys.exit(1)
