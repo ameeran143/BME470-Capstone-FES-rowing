@@ -1312,85 +1312,102 @@ class MapCard(wx.Panel):
         """Paint the card background and map dots"""
         dc = wx.PaintDC(self)
         gc = wx.GraphicsContext.Create(dc)
-        
+
         width, height = self.GetSize()
-        
+
         # Draw shadow effect (subtle)
         shadow_color = wx.Colour(0, 0, 0, 15)
         gc.SetBrush(wx.Brush(shadow_color))
         gc.SetPen(wx.TRANSPARENT_PEN)
         gc.DrawRoundedRectangle(4, 4, width - 4, height - 4, 12)
-        
+
         # Draw card background with rounded corners
         bg = self.bg_color
         border = wx.Colour(220, 220, 220)
         gc.SetPen(wx.Pen(border, 2))
         gc.SetBrush(wx.Brush(bg))
         gc.DrawRoundedRectangle(0, 0, width - 4, height - 4, 12)
-        
-        # Use existing dot positions (don't regenerate each time)
+
+        # Generate dots once
         if not hasattr(self, 'dot_positions') or not self.dot_positions:
             self.dot_positions = self.generate_random_dots()
-        
-        # Draw the curved path first (behind the dots)
+
+        # ----------------------------------------------------
+        # Correct cubic → quadratic function
+        # ----------------------------------------------------
+        def add_quadratic_from_cubic(path, c1x, c1y, c2x, c2y, ex, ey):
+            """
+            Convert a cubic bezier to two quadratic curves.
+            Start point is taken from path.GetCurrentPoint().
+            """
+            # Get start of current segment
+            x0, y0 = path.GetCurrentPoint()
+
+            # Midpoint of cubic control points
+            mx = (c1x + c2x) / 2
+            my = (c1y + c2y) / 2
+
+            # Approx quad control points
+            q1x = (x0 + 2 * c1x) / 3
+            q1y = (y0 + 2 * c1y) / 3
+
+            q2x = (ex + 2 * c2x) / 3
+            q2y = (ey + 2 * c2y) / 3
+
+            # The two quad segments
+            path.AddQuadCurveToPoint(q1x, q1y, mx, my)
+            path.AddQuadCurveToPoint(q2x, q2y, ex, ey)
+
+        # ----------------------------------------------------
+        # Draw the smooth path behind the dots
+        # ----------------------------------------------------
         if len(self.dot_positions) >= 4:
-            path_color = wx.Colour(135, 206, 250)  # Light blue color like the image
-            gc.SetPen(wx.Pen(path_color, 16))  # Slightly thicker for more presence
-            
-            # Create an organic, flowing path like the light blue curves in the image
+            path_color = wx.Colour(135, 206, 250)  # Light blue
+            gc.SetPen(wx.Pen(path_color, 16))
+
             path = gc.CreatePath()
-            
-            # Get the dot positions
-            x1, y1 = self.dot_positions[0]  # Start
-            x2, y2 = self.dot_positions[1]  # Second
-            x3, y3 = self.dot_positions[2]  # Third  
-            x4, y4 = self.dot_positions[3]  # End
-            
-            # Create a flowing S-curve that meanders past the dots
-            # Start at first dot
+
+            x1, y1 = self.dot_positions[0]
+            x2, y2 = self.dot_positions[1]
+            x3, y3 = self.dot_positions[2]
+            x4, y4 = self.dot_positions[3]
+
             path.MoveToPoint(x1, y1)
-            
-            # First curve: S-shaped curve down to second dot
-            # Control point 1 - curves down and right
+
+            # ---- First cubic section ----
             ctrl1_x = x1 + (x2 - x1) // 3
-            ctrl1_y = y1 + 40  # Curve down significantly
-            # Control point 2 - curves back up to second dot
+            ctrl1_y = y1 + 40
             ctrl2_x = x1 + 2 * (x2 - x1) // 3
-            ctrl2_y = y2 - 20  # Curve up to approach second dot
-            path.AddCubicCurveToPoint(ctrl1_x, ctrl1_y, ctrl2_x, ctrl2_y, x2, y2)
-            
-            # Second curve: C-shaped curve up to third dot
-            # Control point 1 - curves up and right
+            ctrl2_y = y2 - 20
+            add_quadratic_from_cubic(path, ctrl1_x, ctrl1_y, ctrl2_x, ctrl2_y, x2, y2)
+
+            # ---- Second cubic section ----
             ctrl3_x = x2 + (x3 - x2) // 3
-            ctrl3_y = y2 - 35  # Curve up significantly
-            # Control point 2 - curves down to third dot
+            ctrl3_y = y2 - 35
             ctrl4_x = x2 + 2 * (x3 - x2) // 3
-            ctrl4_y = y3 + 15  # Curve down to approach third dot
-            path.AddCubicCurveToPoint(ctrl3_x, ctrl3_y, ctrl4_x, ctrl4_y, x3, y3)
-            
-            # Third curve: S-shaped curve down to fourth dot
-            # Control point 1 - curves down and right
+            ctrl4_y = y3 + 15
+            add_quadratic_from_cubic(path, ctrl3_x, ctrl3_y, ctrl4_x, ctrl4_y, x3, y3)
+
+            # ---- Third cubic section ----
             ctrl5_x = x3 + (x4 - x3) // 3
-            ctrl5_y = y3 + 30  # Curve down
-            # Control point 2 - curves back up to fourth dot
+            ctrl5_y = y3 + 30
             ctrl6_x = x3 + 2 * (x4 - x3) // 3
-            ctrl6_y = y4 - 10  # Curve up to approach fourth dot
-            path.AddCubicCurveToPoint(ctrl5_x, ctrl5_y, ctrl6_x, ctrl6_y, x4, y4)
-            
-            # Draw the path
+            ctrl6_y = y4 - 10
+            add_quadratic_from_cubic(path, ctrl5_x, ctrl5_y, ctrl6_x, ctrl6_y, x4, y4)
+
             gc.StrokePath(path)
-        
-        # Draw the 4 dots on top of the path
-        dot_color = wx.Colour(76, 175, 80)  # Green color for dots
+
+        # ----------------------------------------------------
+        # Draw dots on top
+        # ----------------------------------------------------
+        dot_color = wx.Colour(76, 175, 80)
         gc.SetBrush(wx.Brush(dot_color))
         gc.SetPen(wx.Pen(dot_color, 2))
-        
-        # Make sure dots are visible by drawing them with a solid fill
+
         for x, y in self.dot_positions:
-            # Draw a filled circle for each dot
-            gc.DrawEllipse(x - 6, y - 6, 12, 12)  # 12x12 pixel dots
-            # Also draw a smaller inner circle to make sure they're visible
-            gc.DrawEllipse(x - 4, y - 4, 8, 8)  # 8x8 pixel inner circle
+            gc.DrawEllipse(x - 6, y - 6, 12, 12)
+            gc.DrawEllipse(x - 4, y - 4, 8, 8)
+
 
 class DashboardPage(wx.Panel):
     def __init__(self, parent):
