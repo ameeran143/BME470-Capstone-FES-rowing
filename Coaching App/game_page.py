@@ -19,7 +19,6 @@ import os
 import wx
 import time
 import wx.grid as gridlib
-from button import CustomButton
 import nidaqmx
 # import pygame
 import csv
@@ -30,6 +29,92 @@ from scipy import signal
 
 #Correct_Sound = pygame.mixer.Sound("Correct_Sound.wav")
 #Wrong_Sound = pygame.mixer.Sound("Wrong_Sound.wav")
+
+class ModernCard(wx.Panel):
+    """A modern card panel with shadow effect and hover interaction"""
+    def __init__(self, parent, label, handler=None, enabled=True, font_size=38):
+        super(ModernCard, self).__init__(parent)
+        self.enabled = enabled
+        self.handler = handler
+        self.label_text = label
+        self.is_hovered = False
+        self.font_size = font_size
+        
+        # Set base colors
+        if enabled:
+            self.bg_color = wx.Colour(255, 255, 255)
+            self.text_color = wx.Colour(33, 37, 41)
+        else:
+            self.bg_color = wx.Colour(230, 230, 230)
+            self.text_color = wx.Colour(150, 150, 150)
+        
+        self.SetBackgroundColour(self.bg_color)
+        self.SetMinSize((380, 200))
+        
+        # Bind paint and mouse events
+        self.Bind(wx.EVT_PAINT, self.OnPaint)
+        if enabled and handler:
+            self.Bind(wx.EVT_LEFT_DOWN, self.OnClick)
+            self.Bind(wx.EVT_ENTER_WINDOW, self.OnEnter)
+            self.Bind(wx.EVT_LEAVE_WINDOW, self.OnLeave)
+            self.SetCursor(wx.Cursor(wx.CURSOR_HAND))
+        
+        # Ensure the panel is shown and visible
+        self.Show()
+        
+    def OnPaint(self, event):
+        dc = wx.PaintDC(self)
+        gc = wx.GraphicsContext.Create(dc)
+        
+        width, height = self.GetSize()
+        
+        # Ensure we have valid dimensions
+        if width <= 0 or height <= 0:
+            return
+        
+        # Draw shadow effect (subtle)
+        if self.enabled and not self.is_hovered:
+            shadow_color = wx.Colour(0, 0, 0, 15)
+            gc.SetBrush(wx.Brush(shadow_color))
+            gc.SetPen(wx.TRANSPARENT_PEN)
+            gc.DrawRoundedRectangle(4, 4, width - 4, height - 4, 12)
+        
+        # Draw card background with rounded corners
+        if self.is_hovered and self.enabled and self.handler:
+            # Slight elevation on hover
+            bg = wx.Colour(245, 247, 250)
+            border = wx.Colour(76, 175, 80)  # Green accent on hover
+            gc.SetPen(wx.Pen(border, 3))
+        else:
+            bg = self.bg_color
+            border = wx.Colour(220, 220, 220)
+            gc.SetPen(wx.Pen(border, 2))
+        
+        gc.SetBrush(wx.Brush(bg))
+        gc.DrawRoundedRectangle(0, 0, width - 4, height - 4, 12)
+        
+        # Draw text with custom font size
+        dc.SetFont(wx.Font(self.font_size, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        dc.SetTextForeground(self.text_color)
+        
+        text_width, text_height = dc.GetTextExtent(self.label_text)
+        text_x = (width - text_width) // 2
+        text_y = (height - text_height) // 2
+        dc.DrawText(self.label_text, text_x, text_y)
+    
+    def OnEnter(self, event):
+        if self.handler:
+            self.is_hovered = True
+            self.Refresh()
+    
+    def OnLeave(self, event):
+        if self.handler:
+            self.is_hovered = False
+            self.Refresh()
+    
+    def OnClick(self, event):
+        if self.enabled and self.handler:
+            self.handler(event)
 
 class SharedStats:
     def __init__(self):
@@ -1698,7 +1783,7 @@ class GamePage(wx.Panel):
 
         # initialize modern stats panel - top section
         self.stats_panel = ModernStatsDisplay(self, self.shared_state)
-        outer_sizer.Add(self.stats_panel, 2, wx.EXPAND | wx.ALL, 20)
+        outer_sizer.Add(self.stats_panel, 1, wx.EXPAND | wx.ALL, 20)  # Reduced proportion from 2 to 1 (approximately 20% reduction in allocated space)
 
         # initialize location and progress display panel - new section
         self.location_progress_panel = LocationProgressPanel(self, self.shared_state)
@@ -1707,6 +1792,15 @@ class GamePage(wx.Panel):
         # initialize gamified rowing scene - middle section
         self.rowing_scene_panel = RowingScenePanel(self, self.shared_state)
         outer_sizer.Add(self.rowing_scene_panel, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 20)
+        
+        # Add spacer to move FES timing indicator down by ~8% of screen height
+        # Using proportion 0.35 which represents ~8% of total flexible space (1+1+2=4, so 0.35/4.35 ≈ 8%)
+        spacer_panel = wx.Panel(self)
+        spacer_panel.SetBackgroundColour(wx.Colour(248, 249, 250))
+        spacer_panel.SetMinSize((-1, 1))  # Minimum height of 1 pixel
+        outer_sizer.Add(spacer_panel, 0, wx.EXPAND)
+        self.Bind(wx.EVT_SIZE, self.on_size_update)
+        self.fes_spacer_panel = spacer_panel
 
         # initialize FES timing indicator - bottom section
         self.fes_indicator_panel = ModernFESIndicator(self, self.shared_state)
@@ -1716,17 +1810,22 @@ class GamePage(wx.Panel):
         button_container = wx.BoxSizer(wx.HORIZONTAL)
         button_container.AddStretchSpacer()
         
-        # initialize back button
-        self.back_button = CustomButton(self, label="\nBack\n", size=(120, 60), font=30, handler=self.on_back_button)
+        # initialize back button - matching User Dashboard button style
+        self.back_button = ModernCard(self, "← Back", self.on_back_button, enabled=True, font_size=24)
+        self.back_button.SetMinSize((170, 70))
         button_container.Add(self.back_button, 0, wx.ALL, 10)
         
-        # initialize finish session button (bottom-right)
-        self.finish_button = CustomButton(self, label="\nFinish Session\n", size=(180, 60), font=30, handler=self.on_finish_session)
+        # initialize finish session button (bottom-right) - matching User Dashboard button style
+        self.finish_button = ModernCard(self, "Finish Session →", self.on_finish_session, enabled=True, font_size=24)
+        self.finish_button.SetMinSize((308, 70))
         button_container.Add(self.finish_button, 0, wx.ALL, 10)
         
         outer_sizer.Add(button_container, 0, wx.EXPAND | wx.ALL, 0)
 
         self.SetSizer(outer_sizer)
+
+        # Trigger initial spacer size update
+        wx.CallAfter(self.update_spacer_size)
 
         # initialize the main timer
         self.timer = wx.Timer(self)
@@ -1880,6 +1979,26 @@ class GamePage(wx.Panel):
         self.shared_state.stop_writing_stats()
         parent = self.GetParent()
         parent.switch_to_start_page()
+    
+    def update_spacer_size(self):
+        """Update spacer height to be ~8% of screen height"""
+        if hasattr(self, 'fes_spacer_panel'):
+            # Get the client size of the panel
+            client_size = self.GetClientSize()
+            screen_height = client_size.height
+            
+            if screen_height > 0:
+                # Calculate 8% of screen height
+                spacer_height = int(screen_height * 0.08)
+                
+                # Set the spacer panel height
+                self.fes_spacer_panel.SetMinSize((-1, spacer_height))
+                self.Layout()
+    
+    def on_size_update(self, event):
+        """Handle size event to update spacer height"""
+        self.update_spacer_size()
+        event.Skip()
     
     def on_finish_session(self, event):
         """Handle finish session button click - save summary and show summary screen"""

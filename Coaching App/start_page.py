@@ -21,7 +21,7 @@ class ModernCard(wx.Panel):
             self.text_color = wx.Colour(150, 150, 150)
         
         self.SetBackgroundColour(self.bg_color)
-        self.SetMinSize((380, 200))
+        self.SetMinSize((418, 200))
         
         # Bind paint and mouse events
         self.Bind(wx.EVT_PAINT, self.OnPaint)
@@ -133,7 +133,7 @@ class StartPage(wx.Panel):
         # Bottom bar with modern card-style back button
         bottom_bar = wx.BoxSizer(wx.HORIZONTAL)
         self.dashboard_card = ModernCard(self, "← User Dashboard", self.on_user_dashboard, enabled=True, font_size=24)
-        self.dashboard_card.SetMinSize((280, 70))
+        self.dashboard_card.SetMinSize((308, 70))
         bottom_bar.Add(self.dashboard_card, 0, wx.LEFT | wx.BOTTOM, 30)
         bottom_bar.AddStretchSpacer()
         main_sizer.Add(bottom_bar, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
