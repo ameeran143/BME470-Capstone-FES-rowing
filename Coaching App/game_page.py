@@ -2216,6 +2216,11 @@ class RowingScenePanel(wx.Panel):
         self.SetBackgroundColour(wx.Colour(135, 206, 250))  # Sky blue background
         self.shared_state = shared_state
         self.SetMinSize((-1, 200))
+        
+        # Enable double buffering for smoother rendering
+        self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
+        self.SetDoubleBuffered(True)
+
         self.Bind(wx.EVT_PAINT, self.OnPaint)
 
         # Initialize sprite manager for beautiful graphics
@@ -2345,7 +2350,8 @@ class RowingScenePanel(wx.Panel):
         }
 
     def OnPaint(self, event):
-        dc = wx.PaintDC(self)
+        #dc = wx.PaintDC(self)
+        dc = wx.BufferedPaintDC(self)
         size = self.GetSize()
         width, height = size.width, size.height
         

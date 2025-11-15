@@ -7,6 +7,7 @@ from game_page import SharedStats
 from instructions import InstructionsPage
 from session_summary import SessionSummaryPage
 from dashboard import DashboardPage
+from tutorial import GameTutorialPage
 
 class RowingApp(wx.App):
     def OnInit(self):
@@ -40,6 +41,7 @@ class MainFrame(wx.Frame):
         self.calib_page = CalibPage(self, self.shared_state)
         self.game_page = GamePage(self, self.shared_state)
         self.instructions_page = InstructionsPage(self)
+        self.game_tutorial_page = GameTutorialPage(self)
         self.summary_page = None  # Will be created when needed
         
         self.sizer.Add(self.dashboard_page, 1, wx.EXPAND)
@@ -47,12 +49,13 @@ class MainFrame(wx.Frame):
         self.sizer.Add(self.calib_page, 1, wx.EXPAND)
         self.sizer.Add(self.game_page, 1, wx.EXPAND)
         self.sizer.Add(self.instructions_page, 1, wx.EXPAND)
-        
+        self.sizer.Add(self.game_tutorial_page, 1, wx.EXPAND)
+
         self.start_page.Hide()
         self.calib_page.Hide()
         self.game_page.Hide()
         self.instructions_page.Hide()
-        
+        self.game_tutorial_page.Hide()
         self.SetSizer(self.sizer)
         
         self.current_panel = self.dashboard_page
@@ -144,6 +147,13 @@ class MainFrame(wx.Frame):
         self.Refresh()
         self.Layout()
     
+    def switch_to_game_tutorial(self):
+        self.current_panel.Hide()
+        self.game_tutorial_page.Show()
+        self.current_panel = self.game_tutorial_page
+        self.Refresh()
+        self.Layout()
+
     def OnClose(self, event):
         """Handle application close event - cleanup hardware resources"""
         if hasattr(self, 'shared_state'):

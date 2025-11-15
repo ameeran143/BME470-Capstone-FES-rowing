@@ -950,9 +950,11 @@ class AchievementCard(wx.Panel):
         title_text.SetFont(title_font)
         title_text.Wrap(240)  
         if unlocked:
-            title_text.SetForegroundColour(wx.Colour(0, 0, 0))
+            title_text.SetForegroundColour(wx.Colour(50, 50, 50))
+            title_text.SetBackgroundColour(wx.Colour(76, 175, 80))
         else:
             title_text.SetForegroundColour(wx.Colour(100, 100, 100)) 
+            title_text.SetBackgroundColour(wx.Colour(200, 200, 200, 30))
         text_sizer.Add(title_text, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 5)
         
         # Description - standardized font size
@@ -961,9 +963,12 @@ class AchievementCard(wx.Panel):
         desc_text.SetFont(desc_font)
         desc_text.Wrap(240)
         if unlocked:
-            desc_text.SetForegroundColour(wx.Colour(50, 50, 50))
+            desc_text.SetForegroundColour(wx.Colour(0, 0, 0))# text color for unlocked achievements
+            desc_text.SetBackgroundColour(wx.Colour(76, 175, 80))
         else:
             desc_text.SetForegroundColour(wx.Colour(120, 120, 120))
+            desc_text.SetBackgroundColour(wx.Colour(200, 200, 200, 30))
+
         text_sizer.Add(desc_text, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
         
         text_sizer.AddSpacer(5)
@@ -1914,7 +1919,7 @@ class DashboardPage(wx.Panel):
         
         # Add "Selection Screen" button in bottom right - matching User Dashboard button style
         self.selection_card = ModernCard(self, "Selection Screen →", self.on_back_to_start, enabled=True, font_size=24)
-        self.selection_card.SetMinSize((280, 70))
+        self.selection_card.SetMinSize((350, 70))
         bottom_sizer.Add(self.selection_card, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT | wx.BOTTOM, 30)
         
         # Add bottom sizer to main sizer
