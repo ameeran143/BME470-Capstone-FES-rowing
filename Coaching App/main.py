@@ -91,8 +91,6 @@ class MainFrame(wx.Frame):
         
         self.start_page.Show()
         self.current_panel = self.start_page
-        self.start_page.manual_button.Enable()
-        #self.start_page.auto_button.Enable()
         
         # Force layout recalculation
         self.start_page.Layout()

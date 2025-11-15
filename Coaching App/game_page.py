@@ -92,9 +92,9 @@ class SharedStats:
         self.hardware_connected = True
         self.last_hardware_check = 0
         
-        # Mode control: "hardware", "csv_playback", or "simulation"
+        # Mode control: "hardware", "csv_playback", or "simulation", or None
         self.current_mode = None  # Will be determined by detect_mode()
-        self.mode_override = "hardware"  # Manual override - force hardware/sensor mode
+        self.mode_override = "simulation"  # Set to None to disable override and use auto-detection
         
         # CSV playback mode (replay data from sensor CSV files)
         self.anc_playback_mode = False
@@ -265,6 +265,8 @@ class SharedStats:
         
         # Set the mode
         self.current_mode = mode
+
+        print("Current mode: ", self.current_mode)
         
         # Load calibration data only for hardware mode
         if mode == "hardware":
@@ -310,6 +312,8 @@ class SharedStats:
             mode: Mode string or None for auto-detect
             csv_path: Optional path to CSV file (only used if mode is 'csv_playback')
         """
+
+        print("Setting mode: ", mode)
         if mode is None:
             self.mode_override = None
             self.detect_and_set_mode()
@@ -2151,24 +2155,37 @@ class LocationProgressPanel(wx.Panel):
         current_session_distance = self.shared_state.total_distance
         cumulative_total_distance = previous_sessions_distance + current_session_distance
         
+        # Calculate cycle distance (20m per cycle) for looping
+        cycle_distance = 20.0
+        position_in_cycle = cumulative_total_distance % cycle_distance
+        
         next_location_name = None
         progress_to_next = 0.0
         
-        # If current location is Australia (final location), show it and hide progress
-        if current_location_name == "Australia":
-            progress_to_next = 0.0
-            next_location_name = None
-        else:
-            # Find current and next location based on cumulative distance milestones
-            for i, (location_name, milestone_distance) in enumerate(self.location_milestones):
-                if cumulative_total_distance >= milestone_distance:
-                    # Check if there's a next location
-                    if i + 1 < len(self.location_milestones):
-                        next_location_name, next_milestone = self.location_milestones[i + 1]
-                        # Calculate progress to next location
-                        distance_between = next_milestone - milestone_distance
-                        distance_covered = cumulative_total_distance - milestone_distance
-                        progress_to_next = min(1.0, distance_covered / distance_between) if distance_between > 0 else 0.0
+        # Find current and next location based on position in cycle
+        current_index = -1
+        for i, (location_name, milestone_distance) in enumerate(self.location_milestones):
+            if position_in_cycle >= milestone_distance:
+                current_index = i
+            else:
+                break
+        
+        # Determine next location (loops back to Hawaii after Australia)
+        if current_index >= 0:
+            if current_index + 1 < len(self.location_milestones):
+                # Next location in current cycle
+                next_location_name, next_milestone = self.location_milestones[current_index + 1]
+                current_milestone = self.location_milestones[current_index][1]
+                distance_between = next_milestone - current_milestone
+                distance_covered = position_in_cycle - current_milestone
+                progress_to_next = min(1.0, distance_covered / distance_between) if distance_between > 0 else 0.0
+            else:
+                # At Australia, next is Hawaii (looping)
+                next_location_name = "Hawaii"
+                current_milestone = self.location_milestones[current_index][1]
+                distance_between = cycle_distance - current_milestone
+                distance_covered = position_in_cycle - current_milestone
+                progress_to_next = min(1.0, distance_covered / distance_between) if distance_between > 0 else 0.0
         
         # Update location label
         self.location_label.SetLabel(current_location_name)
@@ -2185,8 +2202,10 @@ class LocationProgressPanel(wx.Panel):
         else:
             self.next_location_label.SetLabel("Finish!")
         
-        # Refresh progress bar
+        # Refresh progress bar and scene panel (to update map image)
         self.progress_bar_panel.Refresh()
+        if hasattr(self, 'rowing_scene_panel'):
+            self.rowing_scene_panel.Refresh()  # This will update the map image/theme
         self.Layout()
 
 # ------------------------------------------------------------------------------------------------------------
@@ -2215,13 +2234,14 @@ class RowingScenePanel(wx.Panel):
         # Current location theme
         self.current_location = "Hawaii"
         
-        # Location milestones (distance in meters to reach each location)
+        # Location milestones (distance in meters to reach each location) - matches dashboard
+        # These loop every 20m: Hawaii (0-5), Antarctica (5-10), Amazon (10-15), Japan (15-20), Australia (20+)
         self.location_milestones = [
             ("Hawaii", 0),
-            ("Fiji", 500),
-            ("Tahiti", 1000),
-            ("Bora Bora", 1500),
-            ("Maldives", 2000),
+            ("Antarctica", 5),
+            ("Amazon", 10),
+            ("Japan", 15),
+            ("Australia", 20),
         ]
         
         # Predefined iceberg shapes to cycle through (no randomness)
@@ -3192,22 +3212,34 @@ class RowingScenePanel(wx.Panel):
             # Manual override: use the specified location
             self.current_location = self.shared_state.location_override
         else:
-            # Automatic mode: switch based on cumulative total distance across all sessions
+            # Automatic mode: switch based on cumulative total distance with looping
             # Calculate cumulative distance from all previous sessions plus current session distance
             previous_sessions_distance = self.shared_state.get_cumulative_total_distance()
             current_session_distance = self.shared_state.total_distance
             cumulative_total_distance = previous_sessions_distance + current_session_distance
             
-            # Find the highest milestone reached
+            # Calculate cycle distance (20m per cycle)
+            cycle_distance = 20.0
+            position_in_cycle = cumulative_total_distance % cycle_distance
+            
+            # Find the current location based on position in cycle
             self.current_location = "Hawaii"  # Default to Hawaii
             for location_name, milestone_distance in self.location_milestones:
-                if cumulative_total_distance >= milestone_distance:
+                if position_in_cycle >= milestone_distance:
                     self.current_location = location_name
                 else:
                     break  # Stop at first milestone not reached
         
         # Update shared_state so LocationProgressPanel can access it
         self.shared_state.current_location = self.current_location
+        
+        # Trigger update of location label and map image
+        # Find the parent GamePage to update the location label
+        parent = self.GetParent()
+        while parent and not hasattr(parent, 'location_label'):
+            parent = parent.GetParent()
+        if parent and hasattr(parent, 'location_label'):
+            parent.update_display()
         
         self.Refresh()
 
@@ -3219,19 +3251,31 @@ class RowingScenePanel(wx.Panel):
         if self.shared_state.location_override is not None:
             self.current_location = self.shared_state.location_override
         else:
-            # Always start with Hawaii, but then check cumulative distance
+            # Always start with Hawaii, but then check cumulative distance with looping
             # Calculate cumulative distance from all previous sessions (current session is 0 on reset)
             previous_sessions_distance = self.shared_state.get_cumulative_total_distance()
             
-            # Find the highest milestone reached based on previous sessions
+            # Calculate cycle distance (20m per cycle)
+            cycle_distance = 20.0
+            position_in_cycle = previous_sessions_distance % cycle_distance
+            
+            # Find the current location based on position in cycle
             self.current_location = "Hawaii"  # Default to Hawaii
             for location_name, milestone_distance in self.location_milestones:
-                if previous_sessions_distance >= milestone_distance:
+                if position_in_cycle >= milestone_distance:
                     self.current_location = location_name
                 else:
                     break  # Stop at first milestone not reached
         # Update shared_state
         self.shared_state.current_location = self.current_location
+        
+        # Trigger update of location label and map image
+        # Find the parent GamePage to update the location label
+        parent = self.GetParent()
+        while parent and not hasattr(parent, 'location_label'):
+            parent = parent.GetParent()
+        if parent and hasattr(parent, 'location_label'):
+            parent.update_display()
         self.Refresh()
 
 # ------------------------------------------------------------------------------------------------------------

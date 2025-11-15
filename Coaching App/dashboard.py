@@ -11,10 +11,11 @@ import hashlib
 import secrets
 import csv
 import numpy as np
+from collections import defaultdict
 from datetime import datetime, timedelta
 
 # Configuration: Set to False to skip login and use demo account automatically
-REQUIRE_LOGIN = False
+REQUIRE_LOGIN = True
 
 class AccountManager:
     """Manages user accounts and authentication"""
@@ -39,8 +40,11 @@ class AccountManager:
         try:
             with open(self.accounts_file, "w") as f:
                 json.dump(self.accounts, f, indent=2)
-        except:
-            pass
+            print(f"Successfully saved accounts to {self.accounts_file}")
+        except Exception as e:
+            print(f"Error saving accounts: {e}")
+            import traceback
+            traceback.print_exc()
     
     def hash_password(self, password):
         """Hash password with salt"""
@@ -1109,8 +1113,23 @@ class AchievementsCard(wx.Panel):
 
 class MapCard(wx.Panel):
     """A custom card for displaying a map with dots"""
-    def __init__(self, parent):
+    def __init__(self, parent, username=None):
         super(MapCard, self).__init__(parent)
+        
+        # Store username for distance calculation
+        self.username = username
+        
+        # Location milestones (distance in meters to reach each location) - matching game_page.py
+        self.location_milestones = [
+            ("Hawaii", 0),
+            ("Antarctica", 5),
+            ("Amazon", 10),
+            ("Japan", 15),
+            ("Australia", 20),
+        ]
+        
+        # Store references to location widgets for dynamic updates
+        self.location_widgets = {}
         
         # Set base colors
         self.bg_color = wx.Colour(255, 255, 255)
@@ -1146,7 +1165,7 @@ class MapCard(wx.Panel):
         assets_dir = os.path.join(script_dir, "assets", "images")
         
         # Helper function to create a location column
-        def create_location_column(image_path, image_size, location_name, status_image_path, status_image_size):
+        def create_location_column(image_path, image_size, location_name, status_image_size):
             """Create a vertical sizer for a location with image, text, and status icon"""
             location_sizer = wx.BoxSizer(wx.VERTICAL)
             
@@ -1187,28 +1206,19 @@ class MapCard(wx.Panel):
             # Add location name text with wrapping support
             location_text = wx.StaticText(self, label=location_name, style=wx.ST_NO_AUTORESIZE)
             location_text.SetFont(wx.Font(16, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
-            # Set text color: grey for locked locations, green for unlocked
-            if "lock" in status_image_path.lower():
-                location_text.SetForegroundColour(wx.Colour(128, 128, 128))  # Grey for locked
-            else:
-                location_text.SetForegroundColour(wx.Colour(0, 100, 0))  # Green for unlocked
             # Wrap text to fit within column width (approximately 1/5 of card width minus margins)
             location_text.Wrap(60)  # Approximate width for text wrapping
             location_sizer.Add(location_text, 0, wx.ALIGN_CENTER)
             
-            # Add status image (check or lock)
-            try:
-                status_image = wx.Image(status_image_path, wx.BITMAP_TYPE_PNG)
-                status_image = status_image.Scale(status_image_size, status_image_size, wx.IMAGE_QUALITY_HIGH)
-                status_bitmap = wx.StaticBitmap(self, bitmap=wx.Bitmap(status_image))
-                location_sizer.Add(status_bitmap, 0, wx.ALIGN_CENTER)
-            except Exception as e:
-                print(f"Error loading {status_image_path}: {e}")
-                # Fallback to emoji
-                status_text = wx.StaticText(self, label="✓" if "check" in status_image_path.lower() else "🔒")
-                status_text.SetFont(wx.Font(16, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
-                status_text.SetForegroundColour(wx.Colour(0, 150, 0) if "check" in status_image_path.lower() else wx.Colour(100, 100, 100))
-                location_sizer.Add(status_text, 0, wx.ALIGN_CENTER)
+            # Add status image (check or lock) - will be updated dynamically
+            status_bitmap = wx.StaticBitmap(self, bitmap=wx.Bitmap(1, 1))  # Placeholder, will be updated
+            location_sizer.Add(status_bitmap, 0, wx.ALIGN_CENTER)
+            
+            # Store references for dynamic updates
+            self.location_widgets[location_name] = {
+                'text': location_text,
+                'status_bitmap': status_bitmap
+            }
             
             return location_sizer
         
@@ -1217,7 +1227,7 @@ class MapCard(wx.Panel):
         hawaii_sizer = create_location_column(
             os.path.join(assets_dir, "palm-tree.png"), 80,
             "Hawaii",
-            os.path.join(assets_dir, "check.png"), 40
+            40
         )
         items_sizer.Add(hawaii_sizer, 1, wx.EXPAND)
         
@@ -1225,7 +1235,7 @@ class MapCard(wx.Panel):
         antarctica_sizer = create_location_column(
             os.path.join(assets_dir, "iceberg.png"), 90,
             "Antarctica",
-            os.path.join(assets_dir, "lock.png"), 40
+            40
         )
         items_sizer.Add(antarctica_sizer, 1, wx.EXPAND)
         
@@ -1233,7 +1243,7 @@ class MapCard(wx.Panel):
         amazon_sizer = create_location_column(
             os.path.join(assets_dir, "jungle.png"), 70,
             "Amazon",
-            os.path.join(assets_dir, "lock.png"), 40
+            40
         )
         items_sizer.Add(amazon_sizer, 1, wx.EXPAND)
         
@@ -1241,7 +1251,7 @@ class MapCard(wx.Panel):
         japan_sizer = create_location_column(
             os.path.join(assets_dir, "japan.png"), 80,
             "Japan",
-            os.path.join(assets_dir, "lock.png"), 40
+            40
         )
         items_sizer.Add(japan_sizer, 1, wx.EXPAND)
         
@@ -1249,7 +1259,7 @@ class MapCard(wx.Panel):
         australia_sizer = create_location_column(
             os.path.join(assets_dir, "australia.png"), 80,
             "Australia",
-            os.path.join(assets_dir, "lock.png"), 40
+            40
         )
         items_sizer.Add(australia_sizer, 1, wx.EXPAND)
         
@@ -1264,6 +1274,106 @@ class MapCard(wx.Panel):
         
         # Generate random dot positions
         self.dot_positions = self.generate_random_dots()
+        
+        # Update location unlock status based on distance
+        self.update_location_status()
+    
+    def get_cumulative_distance(self):
+        """Get cumulative total distance for the current user"""
+        if not self.username:
+            return 0.0
+        
+        import csv
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        user_session_dir = os.path.join(script_dir, "user_session_data", self.username)
+        csv_file = os.path.join(user_session_dir, "session_summary.csv")
+        
+        cumulative_distance = 0.0
+        
+        if os.path.exists(csv_file):
+            try:
+                with open(csv_file, 'r', newline='') as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        # Skip invalid rows
+                        date_str = row.get("Date", "").strip() if row.get("Date") else ""
+                        if not date_str or date_str.startswith("//") or date_str.startswith("```"):
+                            continue
+                        
+                        try:
+                            distance_str = row.get("Total Distance (m)", "0")
+                            if distance_str is not None and str(distance_str).strip():
+                                distance = float(distance_str)
+                                cumulative_distance += distance
+                        except (ValueError, TypeError):
+                            continue
+            except Exception as e:
+                print(f"Error reading session summary CSV: {e}")
+        
+        return cumulative_distance
+    
+    def update_location_status(self):
+        """Update lock/unlock status of locations based on cumulative distance with looping"""
+        cumulative_distance = self.get_cumulative_distance()
+        
+        import os
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        assets_dir = os.path.join(script_dir, "assets", "images")
+        check_path = os.path.join(assets_dir, "check.png")
+        lock_path = os.path.join(assets_dir, "lock.png")
+        
+        # Update each location - once unlocked, stays unlocked forever
+        # Check if cumulative distance has reached each location's milestone at least once
+        cycle_distance = 20.0
+        position_in_cycle = cumulative_distance % cycle_distance
+        
+        for i, (location_name, milestone_distance) in enumerate(self.location_milestones):
+            if location_name not in self.location_widgets:
+                continue
+            
+            # Check if location has been reached at least once
+            # Once cumulative_distance >= milestone_distance in any cycle, it stays unlocked forever
+            # For the first cycle, check position_in_cycle
+            # For subsequent cycles, all locations stay unlocked from previous cycles
+            cycle_number = int(cumulative_distance // cycle_distance)
+            
+            if cycle_number == 0:
+                # First cycle: unlock based on current position
+                is_unlocked = position_in_cycle >= milestone_distance
+            else:
+                # Completed at least one cycle: check if reached in current cycle OR was unlocked before
+                # If reached in current cycle (position_in_cycle >= milestone), unlock it
+                # All locations from previous cycles stay unlocked
+                if position_in_cycle >= milestone_distance:
+                    # Reached in current cycle
+                    is_unlocked = True
+                else:
+                    # Check if it was unlocked in a previous cycle
+                    # Since milestone_distance is relative to cycle start, we check if we've
+                    # completed enough cycles to have reached this milestone
+                    # Actually simpler: if we've completed cycles, all locations stay unlocked
+                    is_unlocked = True  # All stay unlocked once cycles are completed
+            
+            widgets = self.location_widgets[location_name]
+            
+            # Update status image
+            try:
+                if is_unlocked:
+                    status_image = wx.Image(check_path, wx.BITMAP_TYPE_PNG)
+                    status_image = status_image.Scale(40, 40, wx.IMAGE_QUALITY_HIGH)
+                    widgets['status_bitmap'].SetBitmap(wx.Bitmap(status_image))
+                    widgets['text'].SetForegroundColour(wx.Colour(0, 100, 0))  # Green for unlocked
+                else:
+                    status_image = wx.Image(lock_path, wx.BITMAP_TYPE_PNG)
+                    status_image = status_image.Scale(40, 40, wx.IMAGE_QUALITY_HIGH)
+                    widgets['status_bitmap'].SetBitmap(wx.Bitmap(status_image))
+                    widgets['text'].SetForegroundColour(wx.Colour(128, 128, 128))  # Grey for locked
+            except Exception as e:
+                print(f"Error updating location status for {location_name}: {e}")
+        
+        # Refresh the display
+        self.Refresh()
+        self.Layout()
         
     def generate_random_dots(self):
         """Generate 4 evenly spaced, staggered dot positions for path connections"""
@@ -1315,82 +1425,50 @@ class MapCard(wx.Panel):
         
         width, height = self.GetSize()
         
-        # Draw shadow effect (subtle)
+        # ----------------------------------------------------
+        # Background + Shadow
+        # ----------------------------------------------------
         shadow_color = wx.Colour(0, 0, 0, 15)
         gc.SetBrush(wx.Brush(shadow_color))
         gc.SetPen(wx.TRANSPARENT_PEN)
         gc.DrawRoundedRectangle(4, 4, width - 4, height - 4, 12)
         
-        # Draw card background with rounded corners
         bg = self.bg_color
         border = wx.Colour(220, 220, 220)
         gc.SetPen(wx.Pen(border, 2))
         gc.SetBrush(wx.Brush(bg))
         gc.DrawRoundedRectangle(0, 0, width - 4, height - 4, 12)
         
-        # Use existing dot positions (don't regenerate each time)
+        # ----------------------------------------------------
+        # Dot positions (use existing)
+        # ----------------------------------------------------
         if not hasattr(self, 'dot_positions') or not self.dot_positions:
             self.dot_positions = self.generate_random_dots()
         
-        # Draw the curved path first (behind the dots)
-        if len(self.dot_positions) >= 4:
-            path_color = wx.Colour(135, 206, 250)  # Light blue color like the image
-            gc.SetPen(wx.Pen(path_color, 16))  # Slightly thicker for more presence
-            
-            # Create an organic, flowing path like the light blue curves in the image
-            path = gc.CreatePath()
-            
-            # Get the dot positions
-            x1, y1 = self.dot_positions[0]  # Start
-            x2, y2 = self.dot_positions[1]  # Second
-            x3, y3 = self.dot_positions[2]  # Third  
-            x4, y4 = self.dot_positions[3]  # End
-            
-            # Create a flowing S-curve that meanders past the dots
-            # Start at first dot
-            path.MoveToPoint(x1, y1)
-            
-            # First curve: S-shaped curve down to second dot
-            # Control point 1 - curves down and right
-            ctrl1_x = x1 + (x2 - x1) // 3
-            ctrl1_y = y1 + 40  # Curve down significantly
-            # Control point 2 - curves back up to second dot
-            ctrl2_x = x1 + 2 * (x2 - x1) // 3
-            ctrl2_y = y2 - 20  # Curve up to approach second dot
-            path.AddCubicCurveToPoint(ctrl1_x, ctrl1_y, ctrl2_x, ctrl2_y, x2, y2)
-            
-            # Second curve: C-shaped curve up to third dot
-            # Control point 1 - curves up and right
-            ctrl3_x = x2 + (x3 - x2) // 3
-            ctrl3_y = y2 - 35  # Curve up significantly
-            # Control point 2 - curves down to third dot
-            ctrl4_x = x2 + 2 * (x3 - x2) // 3
-            ctrl4_y = y3 + 15  # Curve down to approach third dot
-            path.AddCubicCurveToPoint(ctrl3_x, ctrl3_y, ctrl4_x, ctrl4_y, x3, y3)
-            
-            # Third curve: S-shaped curve down to fourth dot
-            # Control point 1 - curves down and right
-            ctrl5_x = x3 + (x4 - x3) // 3
-            ctrl5_y = y3 + 30  # Curve down
-            # Control point 2 - curves back up to fourth dot
-            ctrl6_x = x3 + 2 * (x4 - x3) // 3
-            ctrl6_y = y4 - 10  # Curve up to approach fourth dot
-            path.AddCubicCurveToPoint(ctrl5_x, ctrl5_y, ctrl6_x, ctrl6_y, x4, y4)
-            
-            # Draw the path
-            gc.StrokePath(path)
+        # ----------------------------------------------------
+        # Helper function: convert cubic → two quadratic curves
+        # ----------------------------------------------------
+        def add_quadratic_from_cubic(path, c1x, c1y, c2x, c2y, ex, ey):
+            """
+            Convert a cubic bezier to two quadratic curves.
+            Start point is taken from path.GetCurrentPoint().
+            """
+            x0, y0 = path.GetCurrentPoint()
+
+            mx = (c1x + c2x) / 2
+            my = (c1y + c2y) / 2
+
+            q1x = (x0 + 2 * c1x) / 3
+            q1y = (y0 + 2 * c1y) / 3
+
+            q2x = (ex + 2 * c2x) / 3
+            q2y = (ey + 2 * c2y) / 3
+
+            path.AddQuadCurveToPoint(q1x, q1y, mx, my)
+            path.AddQuadCurveToPoint(q2x, q2y, ex, ey)
         
-        # Draw the 4 dots on top of the path
-        dot_color = wx.Colour(76, 175, 80)  # Green color for dots
-        gc.SetBrush(wx.Brush(dot_color))
-        gc.SetPen(wx.Pen(dot_color, 2))
-        
-        # Make sure dots are visible by drawing them with a solid fill
-        for x, y in self.dot_positions:
-            # Draw a filled circle for each dot
-            gc.DrawEllipse(x - 6, y - 6, 12, 12)  # 12x12 pixel dots
-            # Also draw a smaller inner circle to make sure they're visible
-            gc.DrawEllipse(x - 4, y - 4, 8, 8)  # 8x8 pixel inner circle
+        # Path and dots removed - no longer drawing them
+
 
 class DashboardPage(wx.Panel):
     def __init__(self, parent):
@@ -1441,13 +1519,13 @@ class DashboardPage(wx.Panel):
                     }
                 }
         
-        # Load session data for the logged-in user
+        # Load session data for the logged-in user (this also updates achievements and statistics)
+        # update_achievements_from_sessions() is called inside load_user_session_data() and saves to JSON
         self.session_data = self.load_user_session_data(self.current_username)
         
-        # Update user_data with session statistics
-        if self.user_data:
-            self.user_data['total_sessions'] = self.session_data.get('total_sessions', 0)
-            self.user_data['longest_distance'] = self.session_data.get('longest_distance', 0.0)
+        # Reload user account data (achievements and statistics have been updated and saved)
+        if self.current_username in self.account_manager.accounts:
+            self.user_data = self.account_manager.accounts[self.current_username].copy()
         
         # Create the dashboard layout
         self.create_layout()
@@ -1457,17 +1535,13 @@ class DashboardPage(wx.Panel):
         if not self.is_logged_in or not self.current_username:
             return
         
-        # Reload session data for the logged-in user
+        # Reload session data for the logged-in user (this also updates achievements and statistics)
+        # update_achievements_from_sessions() is called inside load_user_session_data() and saves to JSON
         self.session_data = self.load_user_session_data(self.current_username)
         
-        # Reload user account data (in case it was updated elsewhere)
+        # Reload user account data (achievements and statistics have been updated and saved)
         if self.current_username in self.account_manager.accounts:
             self.user_data = self.account_manager.accounts[self.current_username].copy()
-        
-        # Update user_data with latest session statistics
-        if self.user_data:
-            self.user_data['total_sessions'] = self.session_data.get('total_sessions', 0)
-            self.user_data['longest_distance'] = self.session_data.get('longest_distance', 0.0)
         
         # Update all cards with fresh data
         if hasattr(self, 'section1_card') and self.section1_card:
@@ -1479,6 +1553,14 @@ class DashboardPage(wx.Panel):
         if hasattr(self, 'section3_card') and self.section3_card:
             self.section3_card.update_achievements(self.user_data)
         
+        # Update map card location unlock status
+        if hasattr(self, 'section4_card') and self.section4_card:
+            # Update username if it changed
+            if hasattr(self.section4_card, 'username'):
+                self.section4_card.username = self.current_username
+            if hasattr(self.section4_card, 'update_location_status'):
+                self.section4_card.update_location_status()
+        
         # Update header with user name (in case it changed)
         if hasattr(self, 'header') and self.user_data:
             user_name = self.user_data.get('name', '') or self.user_data.get('username', 'User')
@@ -1489,11 +1571,157 @@ class DashboardPage(wx.Panel):
         self.Layout()
         self.Refresh()
 
+    def update_achievements_from_sessions(self, username, sessions, total_sessions):
+        """Update user achievements based on session data"""
+        if username not in self.account_manager.accounts:
+            print(f"Warning: Username '{username}' not found in accounts. Cannot update achievements.")
+            return
+        
+        print(f"Updating achievements for user '{username}': {total_sessions} sessions, {len(sessions)} session records")
+        
+        achievements = self.account_manager.accounts[username].get('achievements', {})
+        updated = False
+        
+        # First Session: if total_sessions >= 1
+        # Recalculate from scratch - check if total_sessions >= 1
+        achievements['first_session'] = (total_sessions >= 1)
+        if achievements['first_session']:
+            updated = True
+        
+        # Ten Sessions: if total_sessions >= 10
+        # Recalculate from scratch - check if total_sessions >= 10
+        achievements['ten_sessions'] = (total_sessions >= 10)
+        if achievements['ten_sessions']:
+            updated = True
+        
+        # Perfect Form: any session >= 5 minutes (consecutive rowing)
+        # Recalculate from scratch - check if any session is >= 5 minutes
+        achievements['perfect_form'] = False
+        for session in sessions:
+            if session.get('time_minutes', 0) >= 5.0:
+                achievements['perfect_form'] = True
+                updated = True
+                break
+        
+        # Endurance Master: any session >= 30 minutes
+        # Recalculate from scratch - check if any session is >= 30 minutes
+        achievements['endurance_master'] = False
+        for session in sessions:
+            if session.get('time_minutes', 0) >= 30.0:
+                achievements['endurance_master'] = True
+                updated = True
+                break
+        
+        # Speed Demon: keep False (disregard for now)
+        achievements['speed_demon'] = False
+        
+        # Week Warrior: 7 sessions in a single week
+        # Recalculate from scratch - check if any week has 7+ sessions
+        achievements['week_warrior'] = False
+        # Group sessions by week
+        weeks = defaultdict(list)
+        for session in sessions:
+            date_str = session.get('date', '')
+            if date_str:
+                try:
+                    session_date = datetime.strptime(date_str, '%Y-%m-%d')
+                    # Get ISO week number and year
+                    year, week, _ = session_date.isocalendar()
+                    weeks[f"{year}-W{week}"].append(session)
+                except:
+                    continue
+        
+        # Check if any week has 7+ sessions
+        for week_sessions in weeks.values():
+            if len(week_sessions) >= 7:
+                achievements['week_warrior'] = True
+                updated = True
+                break
+        
+        # Monthly Milestone: 20 sessions in a month
+        # Recalculate from scratch - check if any month has 20+ sessions
+        achievements['monthly_milestone'] = False
+        # Group sessions by month
+        months = defaultdict(list)
+        for session in sessions:
+            date_str = session.get('date', '')
+            if date_str:
+                try:
+                    session_date = datetime.strptime(date_str, '%Y-%m-%d')
+                    month_key = f"{session_date.year}-{session_date.month:02d}"
+                    months[month_key].append(session)
+                except:
+                    continue
+        
+        # Check if any month has 20+ sessions
+        for month_sessions in months.values():
+            if len(month_sessions) >= 20:
+                achievements['monthly_milestone'] = True
+                updated = True
+                break
+        
+        # Consistency King: 5 consecutive days
+        # Recalculate from scratch - check for 5 consecutive days
+        achievements['consistency_king'] = False
+        # Extract unique dates and sort them
+        dates = []
+        for session in sessions:
+            date_str = session.get('date', '')
+            if date_str:
+                try:
+                    session_date = datetime.strptime(date_str, '%Y-%m-%d')
+                    dates.append(session_date.date())
+                except:
+                    continue
+        
+        # Remove duplicates and sort
+        unique_dates = sorted(set(dates))
+        
+        # Check for 5 consecutive days
+        if len(unique_dates) >= 5:
+            consecutive_count = 1
+            for i in range(1, len(unique_dates)):
+                days_diff = (unique_dates[i] - unique_dates[i-1]).days
+                if days_diff == 1:
+                    consecutive_count += 1
+                    if consecutive_count >= 5:
+                        achievements['consistency_king'] = True
+                        updated = True
+                        break
+                else:
+                    consecutive_count = 1
+        
+        # Always update achievements and statistics, then save
+        self.account_manager.accounts[username]['achievements'] = achievements
+        self.account_manager.accounts[username]['total_sessions'] = total_sessions
+        
+        # Calculate longest distance from sessions
+        longest_distance = 0.0
+        for session in sessions:
+            distance = session.get('distance', 0.0)
+            longest_distance = max(longest_distance, distance)
+        self.account_manager.accounts[username]['longest_distance'] = longest_distance
+        
+        print(f"Updated user '{username}': total_sessions={total_sessions}, longest_distance={longest_distance}")
+        print(f"Achievements: {achievements}")
+        
+        # Save updated data to file
+        self.account_manager.save_accounts()
+        
+        # Update local user_data if it exists
+        if hasattr(self, 'user_data') and self.user_data and self.user_data.get('username') == username:
+            self.user_data['achievements'] = achievements.copy()
+            self.user_data['total_sessions'] = total_sessions
+            self.user_data['longest_distance'] = longest_distance
+    
     def load_user_session_data(self, username):
         """Load session data from CSV file for a user"""
         script_dir = os.path.dirname(os.path.abspath(__file__))
         user_session_dir = os.path.join(script_dir, "user_session_data", username)
         csv_file = os.path.join(user_session_dir, "session_summary.csv")
+        
+        print(f"Loading session data for user '{username}' from: {csv_file}")
+        print(f"CSV file exists: {os.path.exists(csv_file)}")
         
         sessions = []
         total_sessions = 0
@@ -1504,8 +1732,17 @@ class DashboardPage(wx.Panel):
                 with open(csv_file, 'r', newline='') as f:
                     reader = csv.DictReader(f)
                     for row in reader:
+                        # Skip invalid rows (check if Date field exists and is valid)
+                        date_str = row.get("Date", "").strip() if row.get("Date") else ""
+                        if not date_str or date_str.startswith("//") or date_str.startswith("```"):
+                            continue
+                        
                         # Parse time from "min:sec" format to total minutes
                         time_str = row.get("Total Time (min:sec)", "0:00")
+                        if time_str is None:
+                            time_str = "0:00"
+                        time_str = str(time_str).strip()
+                        
                         try:
                             if ':' in time_str:
                                 parts = time_str.split(':')
@@ -1513,31 +1750,37 @@ class DashboardPage(wx.Panel):
                                 seconds = int(parts[1])
                                 total_minutes = minutes + (seconds / 60.0)
                             else:
-                                total_minutes = float(time_str)
-                        except:
+                                total_minutes = float(time_str) if time_str else 0.0
+                        except (ValueError, TypeError, IndexError):
                             total_minutes = 0.0
                         
                         # Parse distance
+                        distance = 0.0
                         try:
-                            distance = float(row.get("Total Distance (m)", "0"))
-                            longest_distance = max(longest_distance, distance)
-                        except:
+                            distance_str = row.get("Total Distance (m)", "0")
+                            if distance_str is not None and str(distance_str).strip():
+                                distance = float(distance_str)
+                                longest_distance = max(longest_distance, distance)
+                        except (ValueError, TypeError):
                             distance = 0.0
                         
                         # Parse average power
+                        avg_power = 0.0
                         try:
-                            avg_power = float(row.get("Average Power (W)", "0"))
-                        except:
+                            power_str = row.get("Average Power (W)", "0")
+                            if power_str is not None and str(power_str).strip():
+                                avg_power = float(power_str)
+                        except (ValueError, TypeError):
                             avg_power = 0.0
                         
                         # Parse average accuracy
+                        avg_accuracy = 0.0
                         try:
-                            avg_accuracy = float(row.get("Average Accuracy (%)", "0"))
-                        except:
+                            accuracy_str = row.get("Average Accuracy (%)", "0")
+                            if accuracy_str is not None and str(accuracy_str).strip():
+                                avg_accuracy = float(accuracy_str)
+                        except (ValueError, TypeError):
                             avg_accuracy = 0.0
-                        
-                        # Parse date
-                        date_str = row.get("Date", "")
                         
                         sessions.append({
                             'date': date_str,
@@ -1549,6 +1792,15 @@ class DashboardPage(wx.Panel):
                         total_sessions += 1
             except Exception as e:
                 print(f"Error loading session data: {e}")
+                import traceback
+                traceback.print_exc()
+        else:
+            print(f"CSV file does not exist: {csv_file}")
+        
+        print(f"Loaded {total_sessions} sessions, longest_distance={longest_distance}")
+        
+        # Update achievements based on session data
+        self.update_achievements_from_sessions(username, sessions, total_sessions)
         
         return {
             'sessions': sessions,
@@ -1557,8 +1809,8 @@ class DashboardPage(wx.Panel):
         }
     
     def create_demo_account(self):
-        """Create a demo account for demo if no accounts exist"""
-        if not self.account_manager.accounts:
+        """Create a demo account if it doesn't exist"""
+        if "demo" not in self.account_manager.accounts:
             # Create account for demo with password "password"
             self.account_manager.create_account("demo", "password", "demo")
             # Account data will be initialized with defaults from create_account
@@ -1639,7 +1891,7 @@ class DashboardPage(wx.Panel):
         self.section1_card = UserInfoCard(self, self.user_data)
         self.section2_card = StatisticsCard(self, self.session_data)
         self.section3_card = AchievementsCard(self, self.user_data)
-        self.section4_card = MapCard(self)
+        self.section4_card = MapCard(self, self.current_username if hasattr(self, 'current_username') else None)
         
 
         # Add sections with reduced padding for better fit
