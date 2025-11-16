@@ -139,7 +139,7 @@ class LoginDialog(wx.Dialog):
         
         # Make dialog 40% of screen width and height, but with min/max constraints
         dialog_width = max(600, min(800, int(screen_width * 0.4)))
-        dialog_height = max(700, min(900, int(screen_height * 0.6)))
+        dialog_height = max(1100, min(1300, int(screen_height * 0.75)))  # Increased minimum height for registration fields
         
         super(LoginDialog, self).__init__(parent, title="Login", size=(dialog_width, dialog_height))
         self.account_manager = account_manager
@@ -156,37 +156,37 @@ class LoginDialog(wx.Dialog):
         main_sizer = wx.BoxSizer(wx.VERTICAL)
         
         # Top spacer (reduced for better fit)
-        main_sizer.AddSpacer(40)
+        main_sizer.AddSpacer(30)
         
         # Large title matching selection screen style (slightly smaller for dialog)
         self.title_label = wx.StaticText(self, label="User Login")
         title_font = wx.Font(48, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
         self.title_label.SetFont(title_font)
         self.title_label.SetForegroundColour(wx.Colour(33, 37, 41))
-        main_sizer.Add(self.title_label, 0, wx.ALIGN_CENTER | wx.ALL, 30)
+        main_sizer.Add(self.title_label, 0, wx.ALIGN_CENTER | wx.ALL, 20)
         
         # Spacer
-        main_sizer.AddSpacer(30)
+        main_sizer.AddSpacer(20)
         
         # Form card container
-        form_card = wx.Panel(self)
-        form_card.SetBackgroundColour(wx.Colour(255, 255, 255))
-        form_card.SetMinSize((450, -1))
+        self.form_card = wx.Panel(self)
+        self.form_card.SetBackgroundColour(wx.Colour(255, 255, 255))
+        self.form_card.SetMinSize((450, -1))
         
         # Bind paint event for card styling
-        form_card.Bind(wx.EVT_PAINT, self.on_paint_card)
+        self.form_card.Bind(wx.EVT_PAINT, self.on_paint_card)
         
         form_sizer = wx.BoxSizer(wx.VERTICAL)
         form_sizer.AddSpacer(40)
         
         # Registration fields (hidden by default, shown first in registration mode)
-        self.name_label = wx.StaticText(form_card, label="Name")
+        self.name_label = wx.StaticText(self.form_card, label="Name")
         self.name_label.SetFont(wx.Font(18, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         self.name_label.SetForegroundColour(wx.Colour(33, 37, 41))
         form_sizer.Add(self.name_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 30)
         self.name_label.Hide()
         
-        self.reg_name = wx.TextCtrl(form_card, size=(390, 45))
+        self.reg_name = wx.TextCtrl(self.form_card, size=(390, 45))
         self.reg_name.SetFont(wx.Font(16, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         self.reg_name.SetBackgroundColour(wx.Colour(248, 249, 250))
         self.reg_name.SetForegroundColour(wx.Colour(33, 37, 41))  # Dark text color
@@ -194,37 +194,37 @@ class LoginDialog(wx.Dialog):
         self.reg_name.Hide()
         
         # Username field
-        username_label = wx.StaticText(form_card, label="Username")
+        username_label = wx.StaticText(self.form_card, label="Username")
         username_label.SetFont(wx.Font(18, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         username_label.SetForegroundColour(wx.Colour(33, 37, 41))
         form_sizer.Add(username_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 30)
         
-        self.login_username = wx.TextCtrl(form_card, size=(390, 45))
+        self.login_username = wx.TextCtrl(self.form_card, size=(390, 45))
         self.login_username.SetFont(wx.Font(16, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         self.login_username.SetBackgroundColour(wx.Colour(248, 249, 250))
         self.login_username.SetForegroundColour(wx.Colour(33, 37, 41))  # Dark text color
         form_sizer.Add(self.login_username, 0, wx.LEFT | wx.RIGHT | wx.TOP | wx.BOTTOM, 30)
         
         # Password field
-        password_label = wx.StaticText(form_card, label="Password")
+        password_label = wx.StaticText(self.form_card, label="Password")
         password_label.SetFont(wx.Font(18, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         password_label.SetForegroundColour(wx.Colour(33, 37, 41))
         form_sizer.Add(password_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 30)
         
-        self.login_password = wx.TextCtrl(form_card, size=(390, 45), style=wx.TE_PASSWORD)
+        self.login_password = wx.TextCtrl(self.form_card, size=(390, 45), style=wx.TE_PASSWORD)
         self.login_password.SetFont(wx.Font(16, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         self.login_password.SetBackgroundColour(wx.Colour(248, 249, 250))
         self.login_password.SetForegroundColour(wx.Colour(33, 37, 41))  # Dark text color
         form_sizer.Add(self.login_password, 0, wx.LEFT | wx.RIGHT | wx.TOP | wx.BOTTOM, 30)
         
         # Confirm password field (hidden by default, for registration)
-        self.confirm_password_label = wx.StaticText(form_card, label="Confirm Password")
+        self.confirm_password_label = wx.StaticText(self.form_card, label="Confirm Password")
         self.confirm_password_label.SetFont(wx.Font(18, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         self.confirm_password_label.SetForegroundColour(wx.Colour(33, 37, 41))
         form_sizer.Add(self.confirm_password_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 30)
         self.confirm_password_label.Hide()
         
-        self.reg_confirm = wx.TextCtrl(form_card, size=(390, 45), style=wx.TE_PASSWORD)
+        self.reg_confirm = wx.TextCtrl(self.form_card, size=(390, 45), style=wx.TE_PASSWORD)
         self.reg_confirm.SetFont(wx.Font(16, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         self.reg_confirm.SetBackgroundColour(wx.Colour(248, 249, 250))
         self.reg_confirm.SetForegroundColour(wx.Colour(33, 37, 41))  # Dark text color
@@ -234,7 +234,7 @@ class LoginDialog(wx.Dialog):
         form_sizer.AddSpacer(20)
         
         # Error message label (initially hidden)
-        self.error_label = wx.StaticText(form_card, label="")
+        self.error_label = wx.StaticText(self.form_card, label="")
         self.error_label.SetFont(wx.Font(14, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         self.error_label.SetForegroundColour(wx.Colour(220, 53, 69))
         self.error_label.Hide()
@@ -242,16 +242,16 @@ class LoginDialog(wx.Dialog):
         
         form_sizer.AddSpacer(20)
         
-        form_card.SetSizer(form_sizer)
+        self.form_card.SetSizer(form_sizer)
         
         # Center the form card
         card_wrapper = wx.BoxSizer(wx.HORIZONTAL)
         card_wrapper.AddStretchSpacer()
-        card_wrapper.Add(form_card, 0, wx.ALIGN_CENTER)
+        card_wrapper.Add(self.form_card, 0, wx.ALIGN_CENTER)
         card_wrapper.AddStretchSpacer()
         main_sizer.Add(card_wrapper, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 40)
         
-        main_sizer.AddSpacer(30)
+        main_sizer.AddSpacer(20)
         
         # Button container
         button_container = wx.BoxSizer(wx.HORIZONTAL)
@@ -259,7 +259,7 @@ class LoginDialog(wx.Dialog):
         
         # Login/Create button
         self.action_button = ModernCard(self, "Login", self.on_action_click, enabled=True, font_size=24)
-        self.action_button.SetMinSize((200, 60))
+        self.action_button.SetMinSize((288, 70))  # 20% wider than before (240 * 1.2 = 288)
         button_container.Add(self.action_button, 0, wx.ALIGN_CENTER)
         
         button_container.AddStretchSpacer()
@@ -271,10 +271,10 @@ class LoginDialog(wx.Dialog):
         toggle_container = wx.BoxSizer(wx.HORIZONTAL)
         toggle_container.AddStretchSpacer()
         
-        toggle_text = wx.StaticText(self, label="Don't have an account? ")
-        toggle_text.SetFont(wx.Font(14, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
-        toggle_text.SetForegroundColour(wx.Colour(100, 100, 100))
-        toggle_container.Add(toggle_text, 0, wx.ALIGN_CENTER_VERTICAL)
+        self.toggle_text = wx.StaticText(self, label="Don't have an account? ")
+        self.toggle_text.SetFont(wx.Font(14, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        self.toggle_text.SetForegroundColour(wx.Colour(100, 100, 100))
+        toggle_container.Add(self.toggle_text, 0, wx.ALIGN_CENTER_VERTICAL)
         
         self.toggle_link = wx.StaticText(self, label="Create Account")
         self.toggle_link.SetFont(wx.Font(14, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
@@ -338,6 +338,9 @@ class LoginDialog(wx.Dialog):
             self.action_button.label_text = "Create Account"
             self.toggle_link.SetLabel("Back to Login")
             
+            # Hide "Don't have an account?" text in registration mode
+            self.toggle_text.Hide()
+            
             # Update title
             self.title_label.SetLabel("Create Account")
         else:
@@ -351,8 +354,17 @@ class LoginDialog(wx.Dialog):
             self.action_button.label_text = "Login"
             self.toggle_link.SetLabel("Create Account")
             
+            # Show "Don't have an account?" text in login mode
+            self.toggle_text.Show()
+            
             # Update title
             self.title_label.SetLabel("User Login")
+        
+        # Refresh form card layout to ensure fields are visible
+        if hasattr(self, 'form_card'):
+            self.form_card.Layout()
+            self.form_card.Fit()
+            self.form_card.Refresh()
         
         self.action_button.Refresh()
         self.Layout()
@@ -426,6 +438,9 @@ class LoginDialog(wx.Dialog):
             self.reg_confirm.Hide()
             self.action_button.label_text = "Login"
             self.toggle_link.SetLabel("Create Account")
+            
+            # Show "Don't have an account?" text when switching back to login mode
+            self.toggle_text.Show()
             
             # Update title
             self.title_label.SetLabel("User Login")
