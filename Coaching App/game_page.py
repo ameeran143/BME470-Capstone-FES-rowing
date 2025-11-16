@@ -20,7 +20,12 @@ import wx
 import time
 import wx.grid as gridlib
 import nidaqmx
-# import pygame
+try:
+    import pygame
+    PYGAME_AVAILABLE = True
+except ImportError:
+    PYGAME_AVAILABLE = False
+    print("pygame not installed - controller support disabled. Install with: pip install pygame")
 import csv
 import math
 import json
@@ -1895,23 +1900,31 @@ class GamePage(wx.Panel):
         self.Bind(wx.EVT_TIMER, self.on_timer, self.timer)
         self.timer.Start(100)
         
-        # Setup button press detection (spacebar in manual mode)
-        # Try multiple methods for maximum compatibility
+        # Setup button press detection (spacebar + game controller)
+        # Keyboard detection
         self.button_press_id = wx.NewIdRef()
         self.Bind(wx.EVT_MENU, self.on_button_press, id=self.button_press_id)
         
-        # Method 1: Accelerator table on frame
         parent_frame = self.GetTopLevelParent()
         if parent_frame:
             accel_tbl = wx.AcceleratorTable([(wx.ACCEL_NORMAL, wx.WXK_SPACE, self.button_press_id)])
             parent_frame.SetAcceleratorTable(accel_tbl)
-            # Method 2: Bind CHAR_HOOK to frame for better event capture
             parent_frame.Bind(wx.EVT_CHAR_HOOK, self.on_char_hook)
         
-        # Method 3: Bind to panel itself
         self.Bind(wx.EVT_CHAR_HOOK, self.on_char_hook)
         
         self.last_button_press_time = 0  # Debounce tracking
+        
+        # Game controller detection and setup
+        self.controller = None
+        self.controller_last_button_state = {}
+        self.setup_game_controller()
+        
+        # Controller polling timer (check every 50ms)
+        self.controller_timer = wx.Timer(self)
+        self.Bind(wx.EVT_TIMER, self.poll_controller, self.controller_timer)
+        if self.controller:
+            self.controller_timer.Start(50)  # Poll every 50ms
 
     def on_timer(self, event):
         """Main timer callback - updates UI with current state (no simulation)"""
@@ -1979,6 +1992,69 @@ class GamePage(wx.Panel):
         if not self.timer.IsRunning():
             self.timer.Start(100)
 
+    def setup_game_controller(self):
+        """Initialize pygame and detect game controller"""
+        if not PYGAME_AVAILABLE:
+            print("Game controller support not available (pygame not installed)")
+            return
+        
+        try:
+            # Initialize pygame joystick module only
+            pygame.init()
+            pygame.joystick.init()
+            
+            # Check for connected controllers
+            joystick_count = pygame.joystick.get_count()
+            
+            if joystick_count > 0:
+                # Use the first controller found
+                self.controller = pygame.joystick.Joystick(0)
+                self.controller.init()
+                
+                controller_name = self.controller.get_name()
+                num_buttons = self.controller.get_numbuttons()
+                
+                print(f"✓ Controller connected: {controller_name}")
+                print(f"  Buttons: {num_buttons}")
+                print(f"  Press any button on the controller to register button press")
+                
+                # Initialize button state tracking
+                for i in range(num_buttons):
+                    self.controller_last_button_state[i] = False
+            else:
+                print("No game controller detected")
+                print("Connect your 8bitdo controller via Bluetooth and restart the app")
+                
+        except Exception as e:
+            print(f"Error initializing game controller: {e}")
+            self.controller = None
+    
+    def poll_controller(self, event):
+        """Poll game controller for button presses"""
+        if not self.controller:
+            return
+        
+        try:
+            # Process pygame events (required for joystick state updates)
+            pygame.event.pump()
+            
+            # Check all buttons
+            num_buttons = self.controller.get_numbuttons()
+            for button_id in range(num_buttons):
+                button_pressed = self.controller.get_button(button_id)
+                was_pressed = self.controller_last_button_state.get(button_id, False)
+                
+                # Detect button press (transition from not pressed to pressed)
+                if button_pressed and not was_pressed:
+                    print(f"Controller button {button_id} pressed")
+                    self.process_button_press()
+                
+                # Update state
+                self.controller_last_button_state[button_id] = button_pressed
+                
+        except Exception as e:
+            print(f"Error polling controller: {e}")
+    
     def on_char_hook(self, event):
         """Catch keyboard events at high priority"""
         keycode = event.GetKeyCode()
