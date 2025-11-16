@@ -169,6 +169,13 @@ class SharedStats:
 
         # File to store stats
         self.stats_file_path = None
+        self.accounts_file = os.path.join(os.path.dirname(__file__), "user_accounts.json")
+        self.cumulative_distance_live = 0.0
+        self.cumulative_distance_saved = 0.0
+        self._cumulative_loaded = False
+        self._last_cumulative_persist = 0
+        self._cumulative_user = None
+        self.ensure_cumulative_distance_loaded()
         
         # Hardware testing - Auto-detect OS
         import platform
@@ -503,29 +510,108 @@ class SharedStats:
         os.makedirs(user_dir, exist_ok=True)
         return user_dir
     
-    def get_cumulative_total_distance(self):
-        """Calculate cumulative total distance across all sessions for the current user"""
-        data_dir = self.get_user_data_dir()
-        csv_file = os.path.join(data_dir, "session_summary.csv")
+    def ensure_cumulative_distance_loaded(self):
+        """Load cumulative distance for the active user - calculate from CSV first, then use user_accounts.json as fallback"""
+        current_user = self.user_name or "demo"
+        if self._cumulative_loaded and self._cumulative_user == current_user:
+            return
         
-        cumulative_distance = 0.0
+        self._cumulative_user = current_user
+        cumulative_value = 0.0
         
-        if os.path.exists(csv_file):
-            try:
+        # First, try to calculate from CSV (sum of all session distances)
+        try:
+            data_dir = self.get_user_data_dir()
+            csv_file = os.path.join(data_dir, "session_summary.csv")
+            
+            if os.path.exists(csv_file):
                 with open(csv_file, 'r', newline='') as f:
                     reader = csv.DictReader(f)
                     for row in reader:
-                        try:
-                            # Get distance from "Total Distance (m)" column
-                            distance = float(row.get("Total Distance (m)", "0"))
-                            cumulative_distance += distance
-                        except (ValueError, KeyError):
-                            # Skip rows with invalid distance data
+                        # Skip invalid rows
+                        date_str = row.get("Date", "").strip() if row.get("Date") else ""
+                        if not date_str or date_str.startswith("//") or date_str.startswith("```"):
                             continue
-            except Exception as e:
-                print(f"Error reading session summary CSV: {e}")
+                        
+                        try:
+                            distance_str = row.get("Total Distance (m)", "0")
+                            if distance_str is not None and str(distance_str).strip():
+                                distance = float(distance_str)
+                                cumulative_value += distance
+                        except (ValueError, TypeError):
+                            continue
+        except Exception as e:
+            print(f"Failed to calculate cumulative distance from CSV for {current_user}: {e}")
         
-        return cumulative_distance
+        # If CSV calculation resulted in 0, try user_accounts.json as fallback
+        if cumulative_value == 0.0:
+            try:
+                accounts = self._load_accounts_data()
+                user_entry = accounts.get(current_user, {})
+                fallback_value = float(user_entry.get("cumulative_distance_m", 0.0))
+                if fallback_value > 0:
+                    cumulative_value = fallback_value
+            except Exception as e:
+                print(f"Failed to load cumulative distance from accounts for {current_user}: {e}")
+        
+        self.cumulative_distance_live = cumulative_value
+        self.cumulative_distance_saved = cumulative_value
+        self._cumulative_loaded = True
+        self._last_cumulative_persist = time.time()
+    
+    def _load_accounts_data(self):
+        """Read user_accounts.json and return dict"""
+        try:
+            if os.path.exists(self.accounts_file):
+                with open(self.accounts_file, "r") as f:
+                    return json.load(f)
+        except Exception as e:
+            print(f"Unable to read accounts file: {e}")
+        return {}
+    
+    def _save_accounts_data(self, data):
+        """Write updated accounts JSON to disk"""
+        try:
+            with open(self.accounts_file, "w") as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            print(f"Unable to save accounts file: {e}")
+    
+    def _maybe_persist_cumulative_distance(self, force=False):
+        """Persist cumulative distance when it changes significantly or when forced"""
+        if not getattr(self, "_cumulative_loaded", False):
+            return
+        
+        now = time.time()
+        delta = abs(self.cumulative_distance_live - self.cumulative_distance_saved)
+        if not force:
+            if delta < 0.25 and (now - self._last_cumulative_persist) < 2.0:
+                return
+        
+        accounts = self._load_accounts_data()
+        user_key = self.user_name or "demo"
+        user_entry = accounts.setdefault(user_key, {})
+        user_entry["cumulative_distance_m"] = round(self.cumulative_distance_live, 2)
+        self._save_accounts_data(accounts)
+        self.cumulative_distance_saved = self.cumulative_distance_live
+        self._last_cumulative_persist = now
+    
+    def force_persist_cumulative_distance(self):
+        """Force cumulative distance to be saved immediately"""
+        self._maybe_persist_cumulative_distance(force=True)
+    
+    def increment_cumulative_distance(self, distance_increment):
+        """Increase cumulative distance in memory and schedule persistence"""
+        if distance_increment <= 0:
+            return
+        self.ensure_cumulative_distance_loaded()
+        self.cumulative_distance_live += distance_increment
+        self._maybe_persist_cumulative_distance()
+    
+    def get_cumulative_total_distance(self):
+        """Return the live cumulative distance for the current user"""
+        self.ensure_cumulative_distance_loaded()
+        return self.cumulative_distance_live
         
     def create_stats_file(self):
         """Disabled - no longer creating rowing stats files, only session summaries"""
@@ -1225,6 +1311,7 @@ class SharedStats:
                 # Formula: distance = (power / drag_factor) * time
                 distance_increment = (current_power / drag_factor) * time_delta
                 self.total_distance += distance_increment
+                self.increment_cumulative_distance(distance_increment)
 
     def write_stats_to_file(self):
         """Disabled - no longer writing rowing stats files, only session summaries"""
@@ -1300,6 +1387,13 @@ class SharedStats:
                 f"{avg_accuracy:.2f}"  # Average Accuracy
             ])
         
+        # Recalculate cumulative distance from CSV to ensure accuracy (after saving this session)
+        # This ensures cumulative_distance_live matches the sum of all CSV entries
+        self._cumulative_loaded = False  # Force reload
+        self.ensure_cumulative_distance_loaded()
+        
+        # Now persist the recalculated value
+        self.force_persist_cumulative_distance()
         print(f"✅ Session summary saved to: {file_path}")
         
         # Return summary data for display
@@ -1370,6 +1464,8 @@ class SharedStats:
                 if self.weight:
                     writer.writerow(['Weight', self.weight, 'kg'])
                 writer.writerow(['Timestamp', time.strftime('%Y-%m-%d %H:%M:%S'), ''])
+            
+            self.force_persist_cumulative_distance()
             
         except Exception as e:
             print(f"Failed to export session stats: {e}")
@@ -1934,6 +2030,11 @@ class GamePage(wx.Panel):
         self.fes_indicator_panel.update_indicator()
     
     def reset_game(self):
+        # Reload cumulative distance from CSV at the start of each session
+        # This ensures we start with the correct cumulative distance (sum of all previous sessions)
+        self.shared_state._cumulative_loaded = False
+        self.shared_state.ensure_cumulative_distance_loaded()
+        
         # Detect and set mode when game page is activated (only if not already set)
         if self.shared_state.current_mode is None:
             self.shared_state.detect_and_set_mode()
@@ -2163,11 +2264,13 @@ class LocationProgressPanel(wx.Panel):
         # Location milestones (distance in meters to reach each location)
         self.location_milestones = [
             ("Hawaii", 0),
-            ("Antarctica", 5),
-            ("Amazon", 10),
-            ("Japan", 15),
-            ("Australia", 20),
+            ("Antarctica", 10),
+            ("Amazon", 20),
+            ("Japan", 30),
+            ("Australia", 40),
         ]
+        self.location_interval = 10.0
+        self.cycle_distance = self.location_interval * len(self.location_milestones)
         
         # Create main sizer
         main_sizer = wx.BoxSizer(wx.VERTICAL)
@@ -2266,60 +2369,38 @@ class LocationProgressPanel(wx.Panel):
     
     def update_display(self):
         """Update location and progress display"""
-        # Get current location from shared_state (set by RowingScenePanel)
-        current_location_name = self.shared_state.current_location
+        cumulative_total_distance = self.shared_state.get_cumulative_total_distance()
+        position_in_cycle = cumulative_total_distance % self.cycle_distance if self.cycle_distance > 0 else 0.0
         
-        # Calculate cumulative total distance (previous sessions + current session)
-        previous_sessions_distance = self.shared_state.get_cumulative_total_distance()
-        current_session_distance = self.shared_state.total_distance
-        cumulative_total_distance = previous_sessions_distance + current_session_distance
-        
-        # Calculate cycle distance (20m per cycle) for looping
-        cycle_distance = 20.0
-        position_in_cycle = cumulative_total_distance % cycle_distance
-        
-        next_location_name = None
-        progress_to_next = 0.0
-        
-        # Find current and next location based on position in cycle
-        current_index = -1
-        for i, (location_name, milestone_distance) in enumerate(self.location_milestones):
+        current_index = 0
+        for i, (_, milestone_distance) in enumerate(self.location_milestones):
             if position_in_cycle >= milestone_distance:
                 current_index = i
             else:
                 break
         
-        # Determine next location (loops back to Hawaii after Australia)
-        if current_index >= 0:
-            if current_index + 1 < len(self.location_milestones):
-                # Next location in current cycle
-                next_location_name, next_milestone = self.location_milestones[current_index + 1]
-                current_milestone = self.location_milestones[current_index][1]
-                distance_between = next_milestone - current_milestone
-                distance_covered = position_in_cycle - current_milestone
-                progress_to_next = min(1.0, distance_covered / distance_between) if distance_between > 0 else 0.0
-            else:
-                # At Australia, next is Hawaii (looping)
-                next_location_name = "Hawaii"
-                current_milestone = self.location_milestones[current_index][1]
-                distance_between = cycle_distance - current_milestone
-                distance_covered = position_in_cycle - current_milestone
-                progress_to_next = min(1.0, distance_covered / distance_between) if distance_between > 0 else 0.0
+        current_location_name = self.location_milestones[current_index][0]
+        next_index = (current_index + 1) % len(self.location_milestones)
+        next_location_name = self.location_milestones[next_index][0]
         
-        # Update location label
-        self.location_label.SetLabel(current_location_name)
-        
-        # Update progress
-        self.current_progress = progress_to_next
-        
-        # Update percentage label
-        self.percentage_label.SetLabel(f"{int(progress_to_next * 100)}%")
-        
-        # Update next location display
-        if next_location_name:
-            self.next_location_label.SetLabel(next_location_name)
+        current_milestone = self.location_milestones[current_index][1]
+        next_milestone = self.location_milestones[next_index][1]
+        if next_milestone > current_milestone:
+            segment_length = next_milestone - current_milestone
         else:
-            self.next_location_label.SetLabel("Finish!")
+            segment_length = self.cycle_distance - current_milestone
+        
+        distance_into_segment = position_in_cycle - current_milestone
+        if distance_into_segment < 0:
+            distance_into_segment += self.cycle_distance
+        progress_to_next = min(1.0, distance_into_segment / segment_length) if segment_length > 0 else 0.0
+        
+        # Update location and progress labels
+        self.shared_state.current_location = current_location_name
+        self.location_label.SetLabel(current_location_name)
+        self.current_progress = progress_to_next
+        self.percentage_label.SetLabel(f"{int(progress_to_next * 100)}%")
+        self.next_location_label.SetLabel(next_location_name)
         
         # Refresh progress bar and scene panel (to update map image)
         self.progress_bar_panel.Refresh()
@@ -2359,14 +2440,16 @@ class RowingScenePanel(wx.Panel):
         self.current_location = "Hawaii"
         
         # Location milestones (distance in meters to reach each location) - matches dashboard
-        # These loop every 20m: Hawaii (0-5), Antarctica (5-10), Amazon (10-15), Japan (15-20), Australia (20+)
+        # These loop every 10m increments per location (total 50m per loop)
         self.location_milestones = [
             ("Hawaii", 0),
-            ("Antarctica", 5),
-            ("Amazon", 10),
-            ("Japan", 15),
-            ("Australia", 20),
+            ("Antarctica", 10),
+            ("Amazon", 20),
+            ("Japan", 30),
+            ("Australia", 40),
         ]
+        self.location_interval = 10.0
+        self.cycle_distance = self.location_interval * len(self.location_milestones)
         
         # Predefined iceberg shapes to cycle through (no randomness)
         self.iceberg_templates = [
@@ -3337,23 +3420,17 @@ class RowingScenePanel(wx.Panel):
             # Manual override: use the specified location
             self.current_location = self.shared_state.location_override
         else:
-            # Automatic mode: switch based on cumulative total distance with looping
-            # Calculate cumulative distance from all previous sessions plus current session distance
-            previous_sessions_distance = self.shared_state.get_cumulative_total_distance()
-            current_session_distance = self.shared_state.total_distance
-            cumulative_total_distance = previous_sessions_distance + current_session_distance
+            # Automatic mode: switch based on live cumulative distance
+            cumulative_total_distance = self.shared_state.get_cumulative_total_distance()
+            position_in_cycle = cumulative_total_distance % self.cycle_distance if self.cycle_distance > 0 else 0.0
             
-            # Calculate cycle distance (20m per cycle)
-            cycle_distance = 20.0
-            position_in_cycle = cumulative_total_distance % cycle_distance
-            
-            # Find the current location based on position in cycle
-            self.current_location = "Hawaii"  # Default to Hawaii
+            current_location = self.location_milestones[0][0]
             for location_name, milestone_distance in self.location_milestones:
                 if position_in_cycle >= milestone_distance:
-                    self.current_location = location_name
+                    current_location = location_name
                 else:
-                    break  # Stop at first milestone not reached
+                    break
+            self.current_location = current_location
         
         # Update shared_state so LocationProgressPanel can access it
         self.shared_state.current_location = self.current_location
@@ -3376,21 +3453,15 @@ class RowingScenePanel(wx.Panel):
         if self.shared_state.location_override is not None:
             self.current_location = self.shared_state.location_override
         else:
-            # Always start with Hawaii, but then check cumulative distance with looping
-            # Calculate cumulative distance from all previous sessions (current session is 0 on reset)
-            previous_sessions_distance = self.shared_state.get_cumulative_total_distance()
-            
-            # Calculate cycle distance (20m per cycle)
-            cycle_distance = 20.0
-            position_in_cycle = previous_sessions_distance % cycle_distance
-            
-            # Find the current location based on position in cycle
-            self.current_location = "Hawaii"  # Default to Hawaii
+            cumulative_total_distance = self.shared_state.get_cumulative_total_distance()
+            position_in_cycle = cumulative_total_distance % self.cycle_distance if self.cycle_distance > 0 else 0.0
+            current_location = self.location_milestones[0][0]
             for location_name, milestone_distance in self.location_milestones:
                 if position_in_cycle >= milestone_distance:
-                    self.current_location = location_name
+                    current_location = location_name
                 else:
-                    break  # Stop at first milestone not reached
+                    break
+            self.current_location = current_location
         # Update shared_state
         self.shared_state.current_location = self.current_location
         

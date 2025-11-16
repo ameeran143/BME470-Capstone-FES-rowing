@@ -24,6 +24,7 @@ class AccountManager:
         script_dir = os.path.dirname(os.path.abspath(__file__))
         self.accounts_file = os.path.join(script_dir, "user_accounts.json")
         self.accounts = self.load_accounts()
+        self.ensure_account_defaults()
     
     def load_accounts(self):
         """Load accounts from file"""
@@ -57,6 +58,16 @@ class AccountManager:
         password_hash = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt.encode('utf-8'), 100000)
         return password_hash.hex() == stored_hash
     
+    def ensure_account_defaults(self):
+        """Ensure newly loaded accounts contain required default fields"""
+        updated = False
+        for username, data in self.accounts.items():
+            if "cumulative_distance_m" not in data:
+                data["cumulative_distance_m"] = 0.0
+                updated = True
+        if updated:
+            self.save_accounts()
+    
     def create_account(self, username, password, name=""):
         """Create a new user account - simplified to only require username, password, and optional name"""
         if username in self.accounts:
@@ -77,6 +88,7 @@ class AccountManager:
             "total_sessions": 0,
             "total_time": 0,
             "best_stroke_rate": 0,
+            "cumulative_distance_m": 0.0,
             "achievements": {
                 "first_session": False,
                 "ten_sessions": False,
@@ -1127,10 +1139,10 @@ class MapCard(wx.Panel):
         # Location milestones (distance in meters to reach each location) - matching game_page.py
         self.location_milestones = [
             ("Hawaii", 0),
-            ("Antarctica", 5),
-            ("Amazon", 10),
-            ("Japan", 15),
-            ("Australia", 20),
+            ("Antarctica", 10),
+            ("Amazon", 20),
+            ("Japan", 30),
+            ("Australia", 40),
         ]
         
         # Store references to location widgets for dynamic updates
@@ -1284,19 +1296,19 @@ class MapCard(wx.Panel):
         self.update_location_status()
     
     def get_cumulative_distance(self):
-        """Get cumulative total distance for the current user"""
+        """Get cumulative total distance for the current user - calculate from CSV first, then use user_accounts.json as fallback"""
         if not self.username:
             return 0.0
         
-        import csv
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        user_session_dir = os.path.join(script_dir, "user_session_data", self.username)
-        csv_file = os.path.join(user_session_dir, "session_summary.csv")
+        cumulative_value = 0.0
         
-        cumulative_distance = 0.0
-        
-        if os.path.exists(csv_file):
-            try:
+        # First, try to calculate from CSV (sum of all session distances)
+        try:
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            user_session_dir = os.path.join(script_dir, "user_session_data", self.username)
+            csv_file = os.path.join(user_session_dir, "session_summary.csv")
+            
+            if os.path.exists(csv_file):
                 with open(csv_file, 'r', newline='') as f:
                     reader = csv.DictReader(f)
                     for row in reader:
@@ -1309,13 +1321,26 @@ class MapCard(wx.Panel):
                             distance_str = row.get("Total Distance (m)", "0")
                             if distance_str is not None and str(distance_str).strip():
                                 distance = float(distance_str)
-                                cumulative_distance += distance
+                                cumulative_value += distance
                         except (ValueError, TypeError):
                             continue
-            except Exception as e:
-                print(f"Error reading session summary CSV: {e}")
+        except Exception as e:
+            print(f"Failed to calculate cumulative distance from CSV for {self.username}: {e}")
         
-        return cumulative_distance
+        # If CSV calculation resulted in 0, try user_accounts.json as fallback
+        if cumulative_value == 0.0:
+            try:
+                accounts_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_accounts.json")
+                with open(accounts_file, "r") as f:
+                    accounts = json.load(f)
+                user_data = accounts.get(self.username, {})
+                fallback_value = float(user_data.get("cumulative_distance_m", 0.0))
+                if fallback_value > 0:
+                    cumulative_value = fallback_value
+            except Exception as e:
+                print(f"Error loading cumulative distance from accounts for {self.username}: {e}")
+        
+        return cumulative_value
     
     def update_location_status(self):
         """Update lock/unlock status of locations based on cumulative distance with looping"""
@@ -1328,36 +1353,12 @@ class MapCard(wx.Panel):
         lock_path = os.path.join(assets_dir, "lock.png")
         
         # Update each location - once unlocked, stays unlocked forever
-        # Check if cumulative distance has reached each location's milestone at least once
-        cycle_distance = 20.0
-        position_in_cycle = cumulative_distance % cycle_distance
-        
         for i, (location_name, milestone_distance) in enumerate(self.location_milestones):
             if location_name not in self.location_widgets:
                 continue
             
-            # Check if location has been reached at least once
-            # Once cumulative_distance >= milestone_distance in any cycle, it stays unlocked forever
-            # For the first cycle, check position_in_cycle
-            # For subsequent cycles, all locations stay unlocked from previous cycles
-            cycle_number = int(cumulative_distance // cycle_distance)
-            
-            if cycle_number == 0:
-                # First cycle: unlock based on current position
-                is_unlocked = position_in_cycle >= milestone_distance
-            else:
-                # Completed at least one cycle: check if reached in current cycle OR was unlocked before
-                # If reached in current cycle (position_in_cycle >= milestone), unlock it
-                # All locations from previous cycles stay unlocked
-                if position_in_cycle >= milestone_distance:
-                    # Reached in current cycle
-                    is_unlocked = True
-                else:
-                    # Check if it was unlocked in a previous cycle
-                    # Since milestone_distance is relative to cycle start, we check if we've
-                    # completed enough cycles to have reached this milestone
-                    # Actually simpler: if we've completed cycles, all locations stay unlocked
-                    is_unlocked = True  # All stay unlocked once cycles are completed
+            # Unlock location once milestone distance has been reached
+            is_unlocked = cumulative_distance >= milestone_distance
             
             widgets = self.location_widgets[location_name]
             
@@ -1702,12 +1703,17 @@ class DashboardPage(wx.Panel):
         
         # Calculate longest distance from sessions
         longest_distance = 0.0
+        cumulative_distance = 0.0
         for session in sessions:
             distance = session.get('distance', 0.0)
             longest_distance = max(longest_distance, distance)
-        self.account_manager.accounts[username]['longest_distance'] = longest_distance
+            cumulative_distance += distance  # Sum all session distances
         
-        print(f"Updated user '{username}': total_sessions={total_sessions}, longest_distance={longest_distance}")
+        self.account_manager.accounts[username]['longest_distance'] = longest_distance
+        # Update cumulative distance from CSV (sum of all session distances)
+        self.account_manager.accounts[username]['cumulative_distance_m'] = cumulative_distance
+        
+        print(f"Updated user '{username}': total_sessions={total_sessions}, longest_distance={longest_distance}, cumulative_distance={cumulative_distance}")
         print(f"Achievements: {achievements}")
         
         # Save updated data to file
@@ -1718,6 +1724,7 @@ class DashboardPage(wx.Panel):
             self.user_data['achievements'] = achievements.copy()
             self.user_data['total_sessions'] = total_sessions
             self.user_data['longest_distance'] = longest_distance
+            self.user_data['cumulative_distance_m'] = cumulative_distance
     
     def load_user_session_data(self, username):
         """Load session data from CSV file for a user"""
