@@ -2271,23 +2271,30 @@ class LocationProgressPanel(wx.Panel):
         progress_container = wx.BoxSizer(wx.HORIZONTAL)
         progress_container.AddSpacer(100)  # Left padding
         
+        # Wrap progress bar container in a panel to maintain fixed width
+        self.progress_bar_wrapper = wx.Panel(self)
+        self.progress_bar_wrapper.SetBackgroundColour(wx.Colour(255, 255, 255))
+        self.progress_bar_wrapper.Bind(wx.EVT_SIZE, self.OnProgressBarWrapperSize)
+        
         # Progress bar with percentage label
         progress_bar_container = wx.BoxSizer(wx.VERTICAL)
         
         # Percentage indicator (small, above progress bar)
-        self.percentage_label = wx.StaticText(self, label="2%")
+        self.percentage_label = wx.StaticText(self.progress_bar_wrapper, label="2%")
         self.percentage_label.SetForegroundColour(wx.Colour(150, 150, 150))
         self.percentage_label.SetFont(wx.Font(11, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         progress_bar_container.Add(self.percentage_label, 0, wx.ALIGN_LEFT)
         progress_bar_container.AddSpacer(3)
         
         # Progress bar (custom drawn)
-        self.progress_bar_panel = wx.Panel(self, size=(-1, 20))
+        self.progress_bar_panel = wx.Panel(self.progress_bar_wrapper, size=(-1, 20))
         self.progress_bar_panel.SetBackgroundColour(wx.Colour(255, 255, 255))
         self.progress_bar_panel.Bind(wx.EVT_PAINT, self.OnPaintProgressBar)
+        self.progress_bar_panel.Bind(wx.EVT_SIZE, self.OnProgressBarSize)
         progress_bar_container.Add(self.progress_bar_panel, 1, wx.EXPAND)
         
-        progress_container.Add(progress_bar_container, 1, wx.EXPAND)
+        self.progress_bar_wrapper.SetSizer(progress_bar_container)
+        progress_container.Add(self.progress_bar_wrapper, 1, wx.EXPAND)
         progress_container.AddSpacer(20)  # Space between bar and destination
         
         # Destination marker at the end
@@ -2315,6 +2322,20 @@ class LocationProgressPanel(wx.Panel):
         self.next_location_label.SetFont(wx.Font(16, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
         next_location_container.Add(self.next_location_label, 0, wx.ALIGN_LEFT)
         
+        # Calculate maximum width needed for location names to prevent layout shifts
+        # Create a temporary DC to measure text width
+        temp_dc = wx.ClientDC(self)
+        temp_dc.SetFont(self.next_location_label.GetFont())
+        max_location_width = 0
+        for location_name, _ in self.location_milestones:
+            text_width, _ = temp_dc.GetTextExtent(location_name)
+            max_location_width = max(max_location_width, text_width)
+        # Add some padding for safety
+        max_location_width += 20
+        
+        # Set fixed minimum width for next_location_container to prevent layout shifts
+        next_location_container.SetMinSize((max_location_width, -1))
+        
         progress_container.Add(next_location_container, 0, wx.ALIGN_CENTER_VERTICAL)
         progress_container.AddSpacer(100)  # Right padding
         
@@ -2325,6 +2346,31 @@ class LocationProgressPanel(wx.Panel):
         
         # Store current progress for drawing
         self.current_progress = 0.0
+        # Store fixed width for progress bar to prevent shrinking
+        self.progress_bar_width = None
+        self.progress_bar_wrapper_width = None
+    
+    def OnProgressBarWrapperSize(self, event):
+        """Store the progress bar wrapper width when it's first properly sized and set minimum size"""
+        size = self.progress_bar_wrapper.GetSize()
+        if size.width > 0:
+            # Store the maximum width we've seen to prevent shrinking
+            if self.progress_bar_wrapper_width is None or size.width > self.progress_bar_wrapper_width:
+                self.progress_bar_wrapper_width = size.width
+                # Set minimum size to prevent the wrapper (and thus the bar) from shrinking
+                self.progress_bar_wrapper.SetMinSize((self.progress_bar_wrapper_width, -1))
+        event.Skip()
+    
+    def OnProgressBarSize(self, event):
+        """Store the progress bar width when it's first properly sized and set minimum size"""
+        size = self.progress_bar_panel.GetSize()
+        if size.width > 0:
+            # Store the maximum width we've seen to prevent shrinking
+            if self.progress_bar_width is None or size.width > self.progress_bar_width:
+                self.progress_bar_width = size.width
+                # Set minimum size to prevent the bar from shrinking
+                self.progress_bar_panel.SetMinSize((self.progress_bar_width, -1))
+        event.Skip()
     
     def OnPaintProgressBar(self, event):
         """Draw the progress bar"""
@@ -3520,12 +3566,22 @@ class ModernFESIndicator(wx.Panel):
         dc.DrawRoundedRectangle(release_bar_x, bar_y, release_bar_width, bar_height, 25)
         
         # Draw Press bar (right end)
+        press_bar_offset = 33  # Offset to move PRESS bar to the right
+        press_bar_x = bar_padding + release_bar_width + bar_width + press_bar_offset
         dc.SetBrush(wx.Brush(wx.Colour(76, 175, 80)))  # Green for press
-        dc.DrawRoundedRectangle(bar_padding + release_bar_width + bar_width, bar_y, press_bar_width, bar_height, 25)
+        dc.DrawRoundedRectangle(press_bar_x, bar_y, press_bar_width, bar_height, 25)
         
-        # Draw background track (middle section)
+        # Calculate the maximum right position the moving bar will reach
+        # The progress calculation uses: progress_width = int(bar_width * current_progress)
+        # When current_progress = 1.0 (maximum), progress_width = int(bar_width * 1.0) = bar_width
+        # So the moving bar's maximum right edge is: main_bar_x + bar_width
+        # Add rounding buffer to account for int() conversion potentially rounding up
+        rounding_buffer = 2
+        # Calculate grey_bar_width to extend exactly to where the moving bar's maximum reaches
+        max_moving_bar_right = main_bar_x + bar_width + rounding_buffer
+        grey_bar_width = max_moving_bar_right - main_bar_x
         dc.SetBrush(wx.Brush(wx.Colour(240, 240, 240)))
-        dc.DrawRoundedRectangle(main_bar_x, bar_y, bar_width, bar_height, 25)
+        dc.DrawRoundedRectangle(main_bar_x, bar_y, grey_bar_width, bar_height, 25)
         
         # Calculate progress based on seat position
         # Map seat position so that release_pos corresponds to left edge and press_pos to right edge
@@ -3549,10 +3605,12 @@ class ModernFESIndicator(wx.Panel):
                         current_progress = 0.0
                     elif current_pos_mm > press_pos:
                         # Seat is to the right of press position - clip at right boundary (1.0)
+                        # When seat goes beyond press_pos, clip to 1.0 and keep it there until seat returns below press_pos
                         current_progress = 1.0
                     else:
                         # Seat is within range [release_pos, press_pos] - use calculated progress
-                        current_progress = raw_progress
+                        # Clip raw_progress to ensure it never exceeds 1.0 (safety check)
+                        current_progress = min(raw_progress, 1.0)
                 else:
                     current_progress = 0.0
             else:
@@ -3562,9 +3620,16 @@ class ModernFESIndicator(wx.Panel):
             # Map [back_max_pos, front_max_pos] to [0, 1]
             # Where 0 = back (release) and 100 = front (press)
             if self.shared_state.converted_seat_position:
-                current_progress = self.shared_state.converted_seat_position[-1] / 100.0
+                raw_progress = self.shared_state.converted_seat_position[-1] / 100.0
+                # Clip to [0, 1] range - if value exceeds 1.0, clip to 1.0
+                current_progress = min(max(raw_progress, 0.0), 1.0)
             else:
                 current_progress = 0.0
+        
+        # Final safety check: ensure current_progress never exceeds 1.0
+        # This ensures the moving bar never extends beyond the grey bar
+        if current_progress > 1.0:
+            current_progress = 1.0
         
         # Determine direction and color based on position relative to release/press
         # When outside range, use appropriate color to indicate target direction
@@ -3628,7 +3693,7 @@ class ModernFESIndicator(wx.Panel):
                 progress_color = self.last_progress_color
         
         # Draw progress fill only in the middle section (not covering RELEASE/PRESS labels)
-        # Map progress [0, 1] to middle section width only
+        # Map progress [0, 1] to bar_width (base width), so grey bar can extend beyond
         progress_width = int(bar_width * current_progress)
         if progress_width > 0:
             dc.SetBrush(wx.Brush(progress_color))
@@ -3655,8 +3720,9 @@ class ModernFESIndicator(wx.Panel):
         dc.DrawText(left_label, release_x, release_y)
         
         # Press/Activate label (horizontal, centered in right bar)
+        # Move text slightly to the left to avoid overlap with extended grey bar
         press_text_width, press_text_height = dc.GetTextExtent(right_label)
-        press_x = bar_padding + release_bar_width + bar_width + (press_bar_width - press_text_width) // 2
+        press_x = press_bar_x + (press_bar_width - press_text_width) // 2
         press_y = bar_y + (bar_height - press_text_height) // 2
         dc.DrawText(right_label, press_x, press_y)
 
