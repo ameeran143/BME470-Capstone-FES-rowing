@@ -1851,24 +1851,22 @@ class GamePage(wx.Panel):
 
         # initialize location and progress display panel - new section
         self.location_progress_panel = LocationProgressPanel(self, self.shared_state)
-        outer_sizer.Add(self.location_progress_panel, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 20)
+        outer_sizer.Add(self.location_progress_panel, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
 
         # initialize gamified rowing scene - middle section
         self.rowing_scene_panel = RowingScenePanel(self, self.shared_state)
-        outer_sizer.Add(self.rowing_scene_panel, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 20)
+        outer_sizer.Add(self.rowing_scene_panel, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 20)
         
-        # Add spacer to move FES timing indicator down by ~8% of screen height
-        # Using proportion 0.35 which represents ~8% of total flexible space (1+1+2=4, so 0.35/4.35 ≈ 8%)
+        # Add small spacer between rowing scene and FES indicator
         spacer_panel = wx.Panel(self)
         spacer_panel.SetBackgroundColour(wx.Colour(248, 249, 250))
-        spacer_panel.SetMinSize((-1, 1))  # Minimum height of 1 pixel
+        spacer_panel.SetMinSize((-1, 10))  # Small fixed spacer
         outer_sizer.Add(spacer_panel, 0, wx.EXPAND)
-        self.Bind(wx.EVT_SIZE, self.on_size_update)
         self.fes_spacer_panel = spacer_panel
 
         # initialize FES timing indicator - bottom section
         self.fes_indicator_panel = ModernFESIndicator(self, self.shared_state)
-        outer_sizer.Add(self.fes_indicator_panel, 2, wx.EXPAND | wx.ALL, 20)
+        outer_sizer.Add(self.fes_indicator_panel, 1, wx.EXPAND | wx.ALL, 20)
 
         # Button container for bottom-right buttons
         button_container = wx.BoxSizer(wx.HORIZONTAL)
@@ -1891,8 +1889,6 @@ class GamePage(wx.Panel):
         # Button press counter for terminal output
         self.button_press_count = 0
 
-        # Trigger initial spacer size update
-        wx.CallAfter(self.update_spacer_size)
 
         # initialize the main timer
         self.timer = wx.Timer(self)
@@ -2056,25 +2052,6 @@ class GamePage(wx.Panel):
         parent = self.GetParent()
         parent.switch_to_start_page()
     
-    def update_spacer_size(self):
-        """Update spacer height to be ~8% of screen height"""
-        if hasattr(self, 'fes_spacer_panel'):
-            # Get the client size of the panel
-            client_size = self.GetClientSize()
-            screen_height = client_size.height
-            
-            if screen_height > 0:
-                # Calculate 8% of screen height
-                spacer_height = int(screen_height * 0.08)
-                
-                # Set the spacer panel height
-                self.fes_spacer_panel.SetMinSize((-1, spacer_height))
-                self.Layout()
-    
-    def on_size_update(self, event):
-        """Handle size event to update spacer height"""
-        self.update_spacer_size()
-        event.Skip()
     
     def on_finish_session(self, event):
         """Handle finish session button click - save summary and show summary screen"""
@@ -2286,23 +2263,30 @@ class LocationProgressPanel(wx.Panel):
         progress_container = wx.BoxSizer(wx.HORIZONTAL)
         progress_container.AddSpacer(100)  # Left padding
         
+        # Wrap progress bar container in a panel to maintain fixed width
+        self.progress_bar_wrapper = wx.Panel(self)
+        self.progress_bar_wrapper.SetBackgroundColour(wx.Colour(255, 255, 255))
+        self.progress_bar_wrapper.Bind(wx.EVT_SIZE, self.OnProgressBarWrapperSize)
+        
         # Progress bar with percentage label
         progress_bar_container = wx.BoxSizer(wx.VERTICAL)
         
         # Percentage indicator (small, above progress bar)
-        self.percentage_label = wx.StaticText(self, label="2%")
+        self.percentage_label = wx.StaticText(self.progress_bar_wrapper, label="2%")
         self.percentage_label.SetForegroundColour(wx.Colour(150, 150, 150))
         self.percentage_label.SetFont(wx.Font(11, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         progress_bar_container.Add(self.percentage_label, 0, wx.ALIGN_LEFT)
         progress_bar_container.AddSpacer(3)
         
         # Progress bar (custom drawn)
-        self.progress_bar_panel = wx.Panel(self, size=(-1, 20))
+        self.progress_bar_panel = wx.Panel(self.progress_bar_wrapper, size=(-1, 20))
         self.progress_bar_panel.SetBackgroundColour(wx.Colour(255, 255, 255))
         self.progress_bar_panel.Bind(wx.EVT_PAINT, self.OnPaintProgressBar)
+        self.progress_bar_panel.Bind(wx.EVT_SIZE, self.OnProgressBarSize)
         progress_bar_container.Add(self.progress_bar_panel, 1, wx.EXPAND)
         
-        progress_container.Add(progress_bar_container, 1, wx.EXPAND)
+        self.progress_bar_wrapper.SetSizer(progress_bar_container)
+        progress_container.Add(self.progress_bar_wrapper, 1, wx.EXPAND)
         progress_container.AddSpacer(20)  # Space between bar and destination
         
         # Destination marker at the end
@@ -2330,6 +2314,20 @@ class LocationProgressPanel(wx.Panel):
         self.next_location_label.SetFont(wx.Font(16, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
         next_location_container.Add(self.next_location_label, 0, wx.ALIGN_LEFT)
         
+        # Calculate maximum width needed for location names to prevent layout shifts
+        # Create a temporary DC to measure text width
+        temp_dc = wx.ClientDC(self)
+        temp_dc.SetFont(self.next_location_label.GetFont())
+        max_location_width = 0
+        for location_name, _ in self.location_milestones:
+            text_width, _ = temp_dc.GetTextExtent(location_name)
+            max_location_width = max(max_location_width, text_width)
+        # Add some padding for safety
+        max_location_width += 20
+        
+        # Set fixed minimum width for next_location_container to prevent layout shifts
+        next_location_container.SetMinSize((max_location_width, -1))
+        
         progress_container.Add(next_location_container, 0, wx.ALIGN_CENTER_VERTICAL)
         progress_container.AddSpacer(100)  # Right padding
         
@@ -2340,6 +2338,31 @@ class LocationProgressPanel(wx.Panel):
         
         # Store current progress for drawing
         self.current_progress = 0.0
+        # Store fixed width for progress bar to prevent shrinking
+        self.progress_bar_width = None
+        self.progress_bar_wrapper_width = None
+    
+    def OnProgressBarWrapperSize(self, event):
+        """Store the progress bar wrapper width when it's first properly sized and set minimum size"""
+        size = self.progress_bar_wrapper.GetSize()
+        if size.width > 0:
+            # Store the maximum width we've seen to prevent shrinking
+            if self.progress_bar_wrapper_width is None or size.width > self.progress_bar_wrapper_width:
+                self.progress_bar_wrapper_width = size.width
+                # Set minimum size to prevent the wrapper (and thus the bar) from shrinking
+                self.progress_bar_wrapper.SetMinSize((self.progress_bar_wrapper_width, -1))
+        event.Skip()
+    
+    def OnProgressBarSize(self, event):
+        """Store the progress bar width when it's first properly sized and set minimum size"""
+        size = self.progress_bar_panel.GetSize()
+        if size.width > 0:
+            # Store the maximum width we've seen to prevent shrinking
+            if self.progress_bar_width is None or size.width > self.progress_bar_width:
+                self.progress_bar_width = size.width
+                # Set minimum size to prevent the bar from shrinking
+                self.progress_bar_panel.SetMinSize((self.progress_bar_width, -1))
+        event.Skip()
     
     def OnPaintProgressBar(self, event):
         """Draw the progress bar"""
@@ -3483,7 +3506,7 @@ class ModernFESIndicator(wx.Panel):
         main_sizer.AddStretchSpacer()  # Top flexible space
         
         # Title
-        title_label = wx.StaticText(self, label="FES Timing Indicator")
+        title_label = wx.StaticText(self, label="Button Press Indicator")
         title_label.SetForegroundColour(wx.Colour(64, 64, 64))
         title_label.SetFont(wx.Font(36, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
         main_sizer.Add(title_label, 0, wx.ALIGN_CENTER)
@@ -3523,22 +3546,61 @@ class ModernFESIndicator(wx.Panel):
         bar_y = height // 2 - 25  # Center the bar vertically
         bar_height = 50  # Even thicker bar
         bar_padding = 60
-        end_bar_width = 80  # Much wider end bars
-        bar_width = width - (2 * bar_padding) - (2 * end_bar_width)  # Account for end bars
-        main_bar_x = bar_padding + end_bar_width  # Start after the left end bar
         
-        # Draw Release bar (left end)
+        # Determine if in automatic mode
+        is_automatic = hasattr(self.shared_state, 'is_automatic_mode') and self.shared_state.is_automatic_mode
+        
+        # Base widths
+        base_press_width = int(80 * 1.1)  # Width of PRESS bar (right end) - 10% wider (88 pixels)
+        base_release_width = int(80 * 1.2 * 1.1 * 1.1)  # RELEASE bar - 10% wider than before (116 pixels)
+        
+        # In automatic mode: make orange bar 8% narrower, then make green bar match orange width
+        if is_automatic:
+            # Start with 20% wider bars (from previous change)
+            wider_release_width = int(base_release_width * 1.2)
+            wider_press_width = int(base_press_width * 1.2)
+            
+            # Make orange bar 8% narrower
+            release_bar_width = int(wider_release_width * 0.92)  # 8% narrower
+            
+            # Make green bar match orange bar width exactly
+            press_bar_width = release_bar_width  # Same width as orange bar
+        else:
+            press_bar_width = base_press_width  # Keep original width in manual mode
+            release_bar_width = base_release_width  # Keep original width in manual mode
+        
+        bar_width = width - (2 * bar_padding) - release_bar_width - press_bar_width  # Account for end bars
+        main_bar_x = bar_padding + release_bar_width  # Start after the left end bar
+        
+        # Draw Release bar (left end) - extends to the left
+        release_bar_x = bar_padding - (release_bar_width - press_bar_width)  # Extend left by the difference
+        # In automatic mode, move orange button 10 pixels to the left
+        if is_automatic:
+            release_bar_x -= 10
         dc.SetBrush(wx.Brush(wx.Colour(255, 152, 0)))  # Orange for release
         dc.SetPen(wx.TRANSPARENT_PEN)
-        dc.DrawRoundedRectangle(bar_padding, bar_y, end_bar_width, bar_height, 25)
+        dc.DrawRoundedRectangle(release_bar_x, bar_y, release_bar_width, bar_height, 25)
         
         # Draw Press bar (right end)
+        press_bar_offset = 33  # Offset to move PRESS bar to the right
+        press_bar_x = bar_padding + release_bar_width + bar_width + press_bar_offset
+        # In automatic mode, move green button 20 pixels to the left
+        if is_automatic:
+            press_bar_x -= 20
         dc.SetBrush(wx.Brush(wx.Colour(76, 175, 80)))  # Green for press
-        dc.DrawRoundedRectangle(bar_padding + end_bar_width + bar_width, bar_y, end_bar_width, bar_height, 25)
+        dc.DrawRoundedRectangle(press_bar_x, bar_y, press_bar_width, bar_height, 25)
         
-        # Draw background track (middle section)
+        # Calculate the maximum right position the moving bar will reach
+        # The progress calculation uses: progress_width = int(bar_width * current_progress)
+        # When current_progress = 1.0 (maximum), progress_width = int(bar_width * 1.0) = bar_width
+        # So the moving bar's maximum right edge is: main_bar_x + bar_width
+        # Add rounding buffer to account for int() conversion potentially rounding up
+        rounding_buffer = 2
+        # Calculate grey_bar_width to extend exactly to where the moving bar's maximum reaches
+        max_moving_bar_right = main_bar_x + bar_width + rounding_buffer
+        grey_bar_width = max_moving_bar_right - main_bar_x
         dc.SetBrush(wx.Brush(wx.Colour(240, 240, 240)))
-        dc.DrawRoundedRectangle(main_bar_x, bar_y, bar_width, bar_height, 25)
+        dc.DrawRoundedRectangle(main_bar_x, bar_y, grey_bar_width, bar_height, 25)
         
         # Calculate progress based on seat position
         # Map seat position so that release_pos corresponds to left edge and press_pos to right edge
@@ -3562,10 +3624,12 @@ class ModernFESIndicator(wx.Panel):
                         current_progress = 0.0
                     elif current_pos_mm > press_pos:
                         # Seat is to the right of press position - clip at right boundary (1.0)
+                        # When seat goes beyond press_pos, clip to 1.0 and keep it there until seat returns below press_pos
                         current_progress = 1.0
                     else:
                         # Seat is within range [release_pos, press_pos] - use calculated progress
-                        current_progress = raw_progress
+                        # Clip raw_progress to ensure it never exceeds 1.0 (safety check)
+                        current_progress = min(raw_progress, 1.0)
                 else:
                     current_progress = 0.0
             else:
@@ -3575,9 +3639,16 @@ class ModernFESIndicator(wx.Panel):
             # Map [back_max_pos, front_max_pos] to [0, 1]
             # Where 0 = back (release) and 100 = front (press)
             if self.shared_state.converted_seat_position:
-                current_progress = self.shared_state.converted_seat_position[-1] / 100.0
+                raw_progress = self.shared_state.converted_seat_position[-1] / 100.0
+                # Clip to [0, 1] range - if value exceeds 1.0, clip to 1.0
+                current_progress = min(max(raw_progress, 0.0), 1.0)
             else:
                 current_progress = 0.0
+        
+        # Final safety check: ensure current_progress never exceeds 1.0
+        # This ensures the moving bar never extends beyond the grey bar
+        if current_progress > 1.0:
+            current_progress = 1.0
         
         # Determine direction and color based on position relative to release/press
         # When outside range, use appropriate color to indicate target direction
@@ -3641,7 +3712,7 @@ class ModernFESIndicator(wx.Panel):
                 progress_color = self.last_progress_color
         
         # Draw progress fill only in the middle section (not covering RELEASE/PRESS labels)
-        # Map progress [0, 1] to middle section width only
+        # Map progress [0, 1] to bar_width (base width), so grey bar can extend beyond
         progress_width = int(bar_width * current_progress)
         if progress_width > 0:
             dc.SetBrush(wx.Brush(progress_color))
@@ -3663,13 +3734,14 @@ class ModernFESIndicator(wx.Panel):
         
         # Release/Activate label (horizontal, centered in left bar)
         release_text_width, release_text_height = dc.GetTextExtent(left_label)
-        release_x = bar_padding + (end_bar_width - release_text_width) // 2
+        release_x = release_bar_x + (release_bar_width - release_text_width) // 2  # Centered in wider bar
         release_y = bar_y + (bar_height - release_text_height) // 2
         dc.DrawText(left_label, release_x, release_y)
         
         # Press/Activate label (horizontal, centered in right bar)
+        # Move text slightly to the left to avoid overlap with extended grey bar
         press_text_width, press_text_height = dc.GetTextExtent(right_label)
-        press_x = bar_padding + end_bar_width + bar_width + (end_bar_width - press_text_width) // 2
+        press_x = press_bar_x + (press_bar_width - press_text_width) // 2
         press_y = bar_y + (bar_height - press_text_height) // 2
         dc.DrawText(right_label, press_x, press_y)
 
