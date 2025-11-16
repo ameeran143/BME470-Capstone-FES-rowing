@@ -1883,24 +1883,22 @@ class GamePage(wx.Panel):
 
         # initialize location and progress display panel - new section
         self.location_progress_panel = LocationProgressPanel(self, self.shared_state)
-        outer_sizer.Add(self.location_progress_panel, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 20)
+        outer_sizer.Add(self.location_progress_panel, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
 
         # initialize gamified rowing scene - middle section
         self.rowing_scene_panel = RowingScenePanel(self, self.shared_state)
-        outer_sizer.Add(self.rowing_scene_panel, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 20)
+        outer_sizer.Add(self.rowing_scene_panel, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 20)
         
-        # Add spacer to move FES timing indicator down by ~8% of screen height
-        # Using proportion 0.35 which represents ~8% of total flexible space (1+1+2=4, so 0.35/4.35 ≈ 8%)
+        # Add small spacer between rowing scene and FES indicator
         spacer_panel = wx.Panel(self)
         spacer_panel.SetBackgroundColour(wx.Colour(248, 249, 250))
-        spacer_panel.SetMinSize((-1, 1))  # Minimum height of 1 pixel
+        spacer_panel.SetMinSize((-1, 10))  # Small fixed spacer
         outer_sizer.Add(spacer_panel, 0, wx.EXPAND)
-        self.Bind(wx.EVT_SIZE, self.on_size_update)
         self.fes_spacer_panel = spacer_panel
 
         # initialize FES timing indicator - bottom section
         self.fes_indicator_panel = ModernFESIndicator(self, self.shared_state)
-        outer_sizer.Add(self.fes_indicator_panel, 2, wx.EXPAND | wx.ALL, 20)
+        outer_sizer.Add(self.fes_indicator_panel, 1, wx.EXPAND | wx.ALL, 20)
 
         # Button container for bottom-right buttons
         button_container = wx.BoxSizer(wx.HORIZONTAL)
@@ -1920,8 +1918,6 @@ class GamePage(wx.Panel):
 
         self.SetSizer(outer_sizer)
 
-        # Trigger initial spacer size update
-        wx.CallAfter(self.update_spacer_size)
 
         # initialize the main timer
         self.timer = wx.Timer(self)
@@ -2081,25 +2077,6 @@ class GamePage(wx.Panel):
         parent = self.GetParent()
         parent.switch_to_start_page()
     
-    def update_spacer_size(self):
-        """Update spacer height to be ~8% of screen height"""
-        if hasattr(self, 'fes_spacer_panel'):
-            # Get the client size of the panel
-            client_size = self.GetClientSize()
-            screen_height = client_size.height
-            
-            if screen_height > 0:
-                # Calculate 8% of screen height
-                spacer_height = int(screen_height * 0.08)
-                
-                # Set the spacer panel height
-                self.fes_spacer_panel.SetMinSize((-1, spacer_height))
-                self.Layout()
-    
-    def on_size_update(self, event):
-        """Handle size event to update spacer height"""
-        self.update_spacer_size()
-        event.Skip()
     
     def on_finish_session(self, event):
         """Handle finish session button click - save summary and show summary screen"""
@@ -3531,18 +3508,20 @@ class ModernFESIndicator(wx.Panel):
         bar_y = height // 2 - 25  # Center the bar vertically
         bar_height = 50  # Even thicker bar
         bar_padding = 60
-        end_bar_width = 80  # Much wider end bars
-        bar_width = width - (2 * bar_padding) - (2 * end_bar_width)  # Account for end bars
-        main_bar_x = bar_padding + end_bar_width  # Start after the left end bar
+        press_bar_width = 80  # Width of PRESS bar (right end)
+        release_bar_width = int(80 * 1.2 * 1.1)  # RELEASE bar is 32% wider than original (106 pixels)
+        bar_width = width - (2 * bar_padding) - release_bar_width - press_bar_width  # Account for end bars
+        main_bar_x = bar_padding + release_bar_width  # Start after the left end bar
         
-        # Draw Release bar (left end)
+        # Draw Release bar (left end) - extends to the left
+        release_bar_x = bar_padding - (release_bar_width - press_bar_width)  # Extend left by the difference
         dc.SetBrush(wx.Brush(wx.Colour(255, 152, 0)))  # Orange for release
         dc.SetPen(wx.TRANSPARENT_PEN)
-        dc.DrawRoundedRectangle(bar_padding, bar_y, end_bar_width, bar_height, 25)
+        dc.DrawRoundedRectangle(release_bar_x, bar_y, release_bar_width, bar_height, 25)
         
         # Draw Press bar (right end)
         dc.SetBrush(wx.Brush(wx.Colour(76, 175, 80)))  # Green for press
-        dc.DrawRoundedRectangle(bar_padding + end_bar_width + bar_width, bar_y, end_bar_width, bar_height, 25)
+        dc.DrawRoundedRectangle(bar_padding + release_bar_width + bar_width, bar_y, press_bar_width, bar_height, 25)
         
         # Draw background track (middle section)
         dc.SetBrush(wx.Brush(wx.Colour(240, 240, 240)))
@@ -3671,13 +3650,13 @@ class ModernFESIndicator(wx.Panel):
         
         # Release/Activate label (horizontal, centered in left bar)
         release_text_width, release_text_height = dc.GetTextExtent(left_label)
-        release_x = bar_padding + (end_bar_width - release_text_width) // 2
+        release_x = release_bar_x + (release_bar_width - release_text_width) // 2  # Centered in wider bar
         release_y = bar_y + (bar_height - release_text_height) // 2
         dc.DrawText(left_label, release_x, release_y)
         
         # Press/Activate label (horizontal, centered in right bar)
         press_text_width, press_text_height = dc.GetTextExtent(right_label)
-        press_x = bar_padding + end_bar_width + bar_width + (end_bar_width - press_text_width) // 2
+        press_x = bar_padding + release_bar_width + bar_width + (press_bar_width - press_text_width) // 2
         press_y = bar_y + (bar_height - press_text_height) // 2
         dc.DrawText(right_label, press_x, press_y)
 
