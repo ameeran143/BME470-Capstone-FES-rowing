@@ -111,10 +111,20 @@ class MainFrame(wx.Frame):
         # Hide summary page if it exists
         if self.summary_page is not None:
             self.summary_page.Hide()
+        
+        # Reset CSV playback to beginning when switching to game page
+        if hasattr(self.game_page, 'shared_state') and self.game_page.shared_state.anc_playback_mode:
+            self.game_page.shared_state.anc_index = 0
+            self.game_page.shared_state.anc_playback_start_time = None
+        
         self.game_page.Show()
         self.current_panel = self.game_page
         self.Refresh()
         self.Layout()
+        # Ensure game page can receive keyboard events for button press detection
+        # Make sure frame can accept focus and set it
+        self.SetCanFocus(True)
+        wx.CallAfter(self.SetFocus)  # Focus the frame itself
 
     def switch_to_instructions_page(self):
         self.current_panel.Hide()

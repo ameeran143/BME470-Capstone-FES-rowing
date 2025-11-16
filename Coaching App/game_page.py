@@ -153,6 +153,11 @@ class SharedStats:
         self.loading_phase = 0  # 0 for orange, 1 for green
         self.button_press_seat_pos = []  # store seat position at button-press
         self.msg = False
+        
+        # Button press accuracy tracking (for manual mode)
+        self.button_press_accuracies = []  # List of individual button press accuracies (0-100%)
+        self.button_press_window_mm = 200.0  # Window size in mm (±200mm from optimal position)
+        self.button_press_perfect_zone_mm = 80.0  # "Perfect" zone around optimal (±80mm = 100% accuracy)
 
         # for calibration
         self.front_max_pos = 520  # fake data equal 100
@@ -184,9 +189,9 @@ class SharedStats:
         self.hardware_connected = True
         self.last_hardware_check = 0
         
-        # Mode control: "hardware", "csv_playback", or "simulation", or None
+        # Mode control: "hardware", "csv_playback", or None
         self.current_mode = None  # Will be determined by detect_mode()
-        self.mode_override = "simulation"  # Set to None to disable override and use auto-detection
+        self.mode_override = "csv_playback"  # Force CSV playback mode (uses hikaru data)
         
         # CSV playback mode (replay data from sensor CSV files)
         self.anc_playback_mode = False
@@ -328,12 +333,24 @@ class SharedStats:
     def detect_and_set_mode(self):
         """Detect and set the appropriate mode based on priority:
         1. Hardware (if connected)
-        2. CSV playback (if CSV files found)
-        3. Simulation (fallback)
+        2. CSV playback (if CSV files found - uses hikaru data)
         """
         # Check for manual override
         if self.mode_override:
             mode = self.mode_override
+            # If overriding to CSV playback, load the hikaru CSV file
+            if mode == "csv_playback":
+                project_root = os.path.dirname(os.path.dirname(__file__))
+                default_csv_path = os.path.join(project_root, "Test_Recordings", "hikaru", "sensor_data.csv")
+                if os.path.exists(default_csv_path):
+                    try:
+                        self.load_sensor_csv(default_csv_path)
+                    except Exception as e:
+                        print(f"⚠️  Failed to load hikaru CSV: {e}")
+                        mode = None
+                else:
+                    print(f"⚠️  Hikaru CSV not found at: {default_csv_path}")
+                    mode = None
         else:
             # Auto-detect mode based on priority
             # Priority 1: Hardware
@@ -350,15 +367,16 @@ class SharedStats:
                         mode = "csv_playback"
                     except Exception as e:
                         print(f"⚠️  Failed to load CSV: {e}")
-                        mode = "simulation"
+                        mode = None
                 else:
-                    # Priority 3: Simulation (default CSV not found)
-                    mode = "simulation"
+                    # No CSV found - cannot proceed without data source
+                    print("⚠️  No data source available (no hardware, no CSV)")
+                    print("   Please connect hardware or place CSV file at:")
+                    print(f"   {default_csv_path}")
+                    mode = None
         
         # Set the mode
         self.current_mode = mode
-
-        print("Current mode: ", self.current_mode)
         
         # Load calibration data only for hardware mode
         if mode == "hardware":
@@ -370,15 +388,16 @@ class SharedStats:
                     "⚠️  CALIBRATION DATA NOT FOUND\n\n"
                     "Hardware acquisition mode requires calibration data.\n"
                     "Please run calibration first before using hardware mode.\n\n"
-                    "The system will fall back to simulation mode."
+                    "Cannot proceed without calibration."
                 )
                 # Show wx message box if wx is available
                 try:
                     wx.MessageBox(error_msg, "Calibration Required", wx.OK | wx.ICON_WARNING)
                 except:
                     pass
-                # Fall back to simulation mode
-                mode = "simulation"
+                # Cannot use hardware without calibration
+                print("❌ Cannot use hardware mode without calibration data")
+                mode = None
                 self.current_mode = mode
                 self.hardware_mode = False
                 self.hardware_connected = False
@@ -392,20 +411,24 @@ class SharedStats:
             self.hardware_mode = False
             self.anc_playback_mode = True
             self.hardware_connected = False
-        else:  # simulation
+        else:  # No valid mode
             self.hardware_mode = False
             self.anc_playback_mode = False
             self.hardware_connected = False
+            print("⚠️  WARNING: No data source configured")
     
     def set_mode(self, mode, csv_path=None):
-        """Manually set the mode. Modes: 'hardware', 'csv_playback', 'simulation', or None (auto-detect)
+        """Manually set the mode. Modes: 'hardware' or 'csv_playback'
         
         Args:
-            mode: Mode string or None for auto-detect
-            csv_path: Optional path to CSV file (only used if mode is 'csv_playback')
+            mode: 'hardware' for sensor mode, 'csv_playback' for CSV playback, or None for auto-detect
+            csv_path: Optional path to CSV file (required if mode is 'csv_playback')
+        
+        Returns:
+            True if mode was set successfully, False otherwise
         """
 
-        print("Setting mode: ", mode)
+        print(f"Setting mode: {mode}")
         if mode is None:
             self.mode_override = None
             self.detect_and_set_mode()
@@ -465,24 +488,19 @@ class SharedStats:
             self.anc_playback_mode = True
             self.hardware_connected = False
             return True
-        elif mode == "simulation":
-            self.mode_override = "simulation"
-            self.current_mode = "simulation"
-            self.hardware_mode = False
-            self.anc_playback_mode = False
-            self.hardware_connected = False
-            return True
         else:
+            print(f"❌ Invalid mode: {mode}")
             return False
     
     def convert_raw_to_scale(self, raw_pos):
+        """Convert raw seat position to 0-100 scale"""
         if raw_pos:
             # Use CSV min/max if in CSV playback mode, otherwise use calibration values
             if self.current_mode == "csv_playback" and self.csv_seat_min is not None and self.csv_seat_max is not None:
                 # Use CSV-derived min/max values
                 converted = 100 - (raw_pos - self.csv_seat_max) / (self.csv_seat_min - self.csv_seat_max) * 100
             else:
-                # Use calibration values (for hardware mode or simulation)
+                # Use calibration values (for hardware mode)
                 converted = 100 - (raw_pos - self.front_max_pos) / (self.back_max_pos - self.front_max_pos) * 100
             return converted
         return None
@@ -511,48 +529,19 @@ class SharedStats:
         return user_dir
     
     def ensure_cumulative_distance_loaded(self):
-        """Load cumulative distance for the active user - calculate from CSV first, then use user_accounts.json as fallback"""
+        """Load cumulative distance for the active user from user_accounts.json"""
         current_user = self.user_name or "demo"
         if self._cumulative_loaded and self._cumulative_user == current_user:
             return
         
         self._cumulative_user = current_user
         cumulative_value = 0.0
-        
-        # First, try to calculate from CSV (sum of all session distances)
         try:
-            data_dir = self.get_user_data_dir()
-            csv_file = os.path.join(data_dir, "session_summary.csv")
-            
-            if os.path.exists(csv_file):
-                with open(csv_file, 'r', newline='') as f:
-                    reader = csv.DictReader(f)
-                    for row in reader:
-                        # Skip invalid rows
-                        date_str = row.get("Date", "").strip() if row.get("Date") else ""
-                        if not date_str or date_str.startswith("//") or date_str.startswith("```"):
-                            continue
-                        
-                        try:
-                            distance_str = row.get("Total Distance (m)", "0")
-                            if distance_str is not None and str(distance_str).strip():
-                                distance = float(distance_str)
-                                cumulative_value += distance
-                        except (ValueError, TypeError):
-                            continue
+            accounts = self._load_accounts_data()
+            user_entry = accounts.get(current_user, {})
+            cumulative_value = float(user_entry.get("cumulative_distance_m", 0.0))
         except Exception as e:
-            print(f"Failed to calculate cumulative distance from CSV for {current_user}: {e}")
-        
-        # If CSV calculation resulted in 0, try user_accounts.json as fallback
-        if cumulative_value == 0.0:
-            try:
-                accounts = self._load_accounts_data()
-                user_entry = accounts.get(current_user, {})
-                fallback_value = float(user_entry.get("cumulative_distance_m", 0.0))
-                if fallback_value > 0:
-                    cumulative_value = fallback_value
-            except Exception as e:
-                print(f"Failed to load cumulative distance from accounts for {current_user}: {e}")
+            print(f"Failed to load cumulative distance for {current_user}: {e}")
         
         self.cumulative_distance_live = cumulative_value
         self.cumulative_distance_saved = cumulative_value
@@ -1098,9 +1087,9 @@ class SharedStats:
                 
                 # Downsample: skip samples to simulate real-time playback
                 if self.anc_index >= len(self.anc_data):
-                    # End of data, disable playback
-                    self.anc_playback_mode = False
-                    return
+                    # End of data, loop back to the beginning
+                    self.anc_index = 0
+                    self.anc_playback_start_time = time.time()  # Reset playback timer
                 
                 # Read next sample (already downsampled by index increment)
                 current_idx = self.anc_index
@@ -1143,9 +1132,8 @@ class SharedStats:
                 self.hardware_connected = False
                 return
             except Exception as e:
-                print(f"CSV playback error: {e}")
-                # Fallback to simulation
-                self.anc_playback_mode = False
+                print(f"⚠️  CSV playback error: {e}")
+                # Don't disable playback mode - just skip this update cycle
 
         # Hardware sensor data collection (Windows/Linux only)
         if not self.is_mac and self.hardware_mode:
@@ -1253,26 +1241,9 @@ class SharedStats:
                 self.hardware_connected = False
                 return  # Do not fall back to simulation
         
-        # Simulation mode (always used on macOS, fallback for Windows/Linux, unless CSV playback)
-        if not hasattr(self, 'temp_time'):
-            self.temp_time = []
-        self.temp_time.append(time.time())
-
-        # # update stroke rate
-        # if self.raw_seat_pos:
-        #     if self.raw_seat_pos[-1] >= self.front_max_pos:
-        #         self.stroke_time.append(time.time())
-        #     if len(self.stroke_time) > 1:
-        #         self.stroke_duration.append(self.stroke_time[-1] - self.stroke_time[-2])
-        #         self.stroke_rate.append(60/round(self.stroke_duration[-1]))
-
-        # convert raw seat position to 0-100 scale
-        if self.raw_seat_pos:
-            if self.raw_seat_pos[-1] <= self.back_max_pos:
-                self.raw_seat_pos[-1] = self.back_max_pos
-            elif self.raw_seat_pos[-1] >= self.front_max_pos:
-                self.raw_seat_pos[-1] = self.front_max_pos
-            self.converted_seat_position.append(self.convert_raw_to_scale(self.raw_seat_pos[-1]))
+        # No simulation mode - only hardware or CSV playback
+        # If we reach here, no valid data source is available
+        print("⚠️  No data source - waiting for hardware or CSV playback")
         
         # update score and misses
         if self.converted_seat_position:
@@ -1351,12 +1322,15 @@ class SharedStats:
         # Total distance (already calculated)
         total_distance = self.total_distance
         
-        # Average accuracy
-        total_attempts = self.score + self.misses
-        if total_attempts > 0:
-            avg_accuracy = (self.score / total_attempts) * 100
+        # Average accuracy - use button press accuracies in manual mode
+        if not self.is_automatic_mode and self.button_press_accuracies:
+            avg_accuracy = sum(self.button_press_accuracies) / len(self.button_press_accuracies)
         else:
-            avg_accuracy = 0.0
+            total_attempts = self.score + self.misses
+            if total_attempts > 0:
+                avg_accuracy = (self.score / total_attempts) * 100
+            else:
+                avg_accuracy = 0.0
         
         # Use user-specific data directory
         data_dir = self.get_user_data_dir()
@@ -1387,12 +1361,6 @@ class SharedStats:
                 f"{avg_accuracy:.2f}"  # Average Accuracy
             ])
         
-        # Recalculate cumulative distance from CSV to ensure accuracy (after saving this session)
-        # This ensures cumulative_distance_live matches the sum of all CSV entries
-        self._cumulative_loaded = False  # Force reload
-        self.ensure_cumulative_distance_loaded()
-        
-        # Now persist the recalculated value
         self.force_persist_cumulative_distance()
         print(f"✅ Session summary saved to: {file_path}")
         
@@ -1917,119 +1885,54 @@ class GamePage(wx.Panel):
         outer_sizer.Add(button_container, 0, wx.EXPAND | wx.ALL, 0)
 
         self.SetSizer(outer_sizer)
+        
+        # Button press counter for terminal output
+        self.button_press_count = 0
 
 
         # initialize the main timer
         self.timer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self.on_timer, self.timer)
         self.timer.Start(100)
+        
+        # Setup button press detection (spacebar in manual mode)
+        # Try multiple methods for maximum compatibility
+        self.button_press_id = wx.NewIdRef()
+        self.Bind(wx.EVT_MENU, self.on_button_press, id=self.button_press_id)
+        
+        # Method 1: Accelerator table on frame
+        parent_frame = self.GetTopLevelParent()
+        if parent_frame:
+            accel_tbl = wx.AcceleratorTable([(wx.ACCEL_NORMAL, wx.WXK_SPACE, self.button_press_id)])
+            parent_frame.SetAcceleratorTable(accel_tbl)
+            # Method 2: Bind CHAR_HOOK to frame for better event capture
+            parent_frame.Bind(wx.EVT_CHAR_HOOK, self.on_char_hook)
+        
+        # Method 3: Bind to panel itself
+        self.Bind(wx.EVT_CHAR_HOOK, self.on_char_hook)
+        
+        self.last_button_press_time = 0  # Debounce tracking
 
     def on_timer(self, event):
+        """Main timer callback - updates UI with current state (no simulation)"""
+        # Update stats (reads from hardware or CSV playback)
         self.shared_state.update_stats()
-        if self.shared_state.raw_seat_pos:
-            print('raw seat pos: ', self.shared_state.raw_seat_pos[-1])
-            print('Current seat position: ', self.shared_state.converted_seat_position[-1])
-            print('front max pos', self.shared_state.front_max_pos)
-            print('back max pos', self.shared_state.back_max_pos)
-            print('is pressed', self.shared_state.is_pressed)
-            if self.shared_state.switch_press:
-                print('switch press', self.shared_state.switch_press[-1])
         
-        # Only simulate data if hardware is not connected and not in CSV playback mode
-        if not self.shared_state.hardware_connected and not getattr(self.shared_state, 'anc_playback_mode', False):
-            # Simulate seat position for FES indicator (no visual seat anymore)
-            if not self.shared_state.raw_seat_pos:
-                self.shared_state.raw_seat_pos.append(self.shared_state.back_max_pos)
-            else:
-                self.shared_state.converted_seat_position.append(self.shared_state.convert_raw_to_scale(self.shared_state.raw_seat_pos[-1]))
-                next_pos = self.shared_state.converted_seat_position[-1] + self.shared_state.seat_direction 
-                self.shared_state.raw_seat_pos.append(self.shared_state.convert_scale_to_raw(next_pos)) 
-                
-                # Simulation logic
-                if next_pos >= 100:
-                    self.shared_state.seat_direction = -3
-                elif next_pos <= 0:
-                    self.shared_state.seat_direction = 3
-                if self.shared_state.is_pressed:
-                    self.shared_state.switch_press.append(5)
-                else:
-                    self.shared_state.switch_press.append(0)
-                
-                self.shared_state.converted_seat_position.append(next_pos)
-            
-            # Generate realistic fake power data (only in simulation mode)
-            import random
-            if not hasattr(self.shared_state, 'temp_time'):
-                self.shared_state.temp_time = []
-            self.shared_state.temp_time.append(time.time())
-            
-            # Add some initial fake data if lists are empty
-            if not self.shared_state.avg_power:
-                # Start with some baseline values
-                initial_power = random.uniform(85, 125)
-                self.shared_state.temp_power.append(initial_power)
-                self.shared_state.avg_power.append(initial_power)
-                self.shared_state.stroke_rate.append(random.uniform(24, 26))
-            
-            # Simulate realistic power output (varies between 50-200W with rowing motion)
-            if self.shared_state.converted_seat_position:
-                current_pos = self.shared_state.converted_seat_position[-1]
-                
-                # Power varies with rowing phase - higher during drive phase (moving toward front)
-                if len(self.shared_state.converted_seat_position) >= 2:
-                    prev_pos = self.shared_state.converted_seat_position[-2]
-                    is_driving = current_pos > prev_pos  # Moving toward front (drive phase)
-                    
-                    if is_driving and current_pos > 50:  # High power during drive phase
-                        base_power = random.uniform(120, 200)
-                    elif is_driving:  # Moderate power during early drive
-                        base_power = random.uniform(80, 150)
-                    else:  # Lower power during recovery phase
-                        base_power = random.uniform(30, 80)
-                    
-                    # Add some random variation
-                    power_variation = random.uniform(-20, 20)
-                    simulated_power = max(0, base_power + power_variation)
-                    
-                    self.shared_state.temp_power.append(simulated_power)
-                    self.shared_state.avg_power.append(sum(self.shared_state.temp_power) / len(self.shared_state.temp_power))
-                    
-                    # Simulate stroke rate (strokes per minute) - typical rowing is 20-35 SPM
-                    if not self.shared_state.stroke_rate:
-                        simulated_stroke_rate = random.uniform(22, 28)  # Start with moderate pace
-                    else:
-                        # Vary stroke rate slightly around current rate
-                        current_rate = self.shared_state.stroke_rate[-1]
-                        rate_change = random.uniform(-2, 2)
-                        simulated_stroke_rate = max(18, min(35, current_rate + rate_change))
-                    
-                    self.shared_state.stroke_rate.append(simulated_stroke_rate)
-            
-            # Generate fake accuracy data (simulate some successful and missed FES activations)
-            if len(self.shared_state.converted_seat_position) > 10:  # Wait a bit before starting accuracy simulation
-                # Randomly simulate button presses at appropriate times
-                if random.random() < 0.05:  # 5% chance per update to simulate a button press
-                    current_pos = self.shared_state.raw_seat_pos[-1] if self.shared_state.raw_seat_pos else 0
-                    
-                    # Simulate success/failure based on timing accuracy (80% success rate)
-                    if random.random() < 0.8:  # 80% success rate
-                        self.shared_state.score += 1
-                    else:
-                        self.shared_state.misses += 1
-        
-        # Calculate realistic distance (for both hardware and simulation mode)
+        # Calculate distance based on current data
         self.shared_state.calculate_distance()
         
+        # Update all UI panels
         self.stats_panel.update_stats()
         self.location_progress_panel.update_display()
         self.rowing_scene_panel.update_scene()
         self.fes_indicator_panel.update_indicator()
     
     def reset_game(self):
-        # Reload cumulative distance from CSV at the start of each session
-        # This ensures we start with the correct cumulative distance (sum of all previous sessions)
-        self.shared_state._cumulative_loaded = False
-        self.shared_state.ensure_cumulative_distance_loaded()
+        # Re-setup button press detection
+        parent_frame = self.GetTopLevelParent()
+        if parent_frame and hasattr(self, 'button_press_id'):
+            accel_tbl = wx.AcceleratorTable([(wx.ACCEL_NORMAL, wx.WXK_SPACE, self.button_press_id)])
+            parent_frame.SetAcceleratorTable(accel_tbl)
         
         # Detect and set mode when game page is activated (only if not already set)
         if self.shared_state.current_mode is None:
@@ -2064,14 +1967,86 @@ class GamePage(wx.Panel):
         self.stats_panel.reset()
         self.rowing_scene_panel.reset()
         self.fes_indicator_panel.reset()
-        # Restart timer if it was stopped
-        if not self.timer.IsRunning():
-            self.timer.Start(100)
-        # Reset CSV playback for new session
+        # Reset button press counter
+        self.button_press_count = 0
+        
+        # Reset CSV playback to beginning (for new session)
         if self.shared_state.anc_playback_mode:
             self.shared_state.anc_index = 0
             self.shared_state.anc_playback_start_time = None
+        
+        # Restart timer if it was stopped
+        if not self.timer.IsRunning():
+            self.timer.Start(100)
 
+    def on_char_hook(self, event):
+        """Catch keyboard events at high priority"""
+        keycode = event.GetKeyCode()
+        if keycode == wx.WXK_SPACE:
+            self.process_button_press()
+            return  # Don't propagate
+        event.Skip()  # Let other keys through
+    
+    def on_button_press(self, event):
+        """Handle button press from accelerator table"""
+        self.process_button_press()
+    
+    def process_button_press(self):
+        """Process button press for accuracy tracking"""
+        self.button_press_count += 1
+        
+        # Only process in manual mode
+        if self.shared_state.is_automatic_mode:
+            return
+        
+        # Debounce: ignore if pressed within last 200ms
+        current_time = time.time()
+        if current_time - self.last_button_press_time < 0.2:
+            return
+        self.last_button_press_time = current_time
+        
+        # Get current seat position (prefer mm if available)
+        if self.shared_state.seat_position_mm and len(self.shared_state.seat_position_mm) > 0:
+            current_pos_mm = self.shared_state.seat_position_mm[-1]
+        elif self.shared_state.raw_seat_pos and len(self.shared_state.raw_seat_pos) > 0:
+            current_pos_mm = self.shared_state.raw_seat_pos[-1]
+        else:
+            return
+        
+        # Optimal position is seat_position_press (rightmost - where PRESS zone is)
+        if hasattr(self.shared_state, 'seat_position_press') and self.shared_state.seat_position_press is not None:
+            optimal_pos = self.shared_state.seat_position_press
+        else:
+            return
+        
+        # Calculate accuracy: Lenient with sweet spot zone, 0% beyond 200mm
+        distance = abs(current_pos_mm - optimal_pos)
+        perfect_zone = self.shared_state.button_press_perfect_zone_mm
+        window = self.shared_state.button_press_window_mm
+        
+        if distance <= perfect_zone:
+            # Within perfect zone - always 100%
+            accuracy = 100.0
+        elif distance <= window:
+            # Outside perfect zone but within window - gentle cubic root decay
+            excess_distance = distance - perfect_zone
+            remaining_window = window - perfect_zone
+            normalized_distance = excess_distance / remaining_window  # 0 to 1
+            # Cubic root for very gentle curve from 100% down to 0%
+            decay_factor = 1.0 - (normalized_distance ** 0.33)  # Cubic root
+            accuracy = 100.0 * decay_factor
+            accuracy = max(0.0, min(100.0, accuracy))
+        else:
+            # Outside window - no credit
+            accuracy = 0.0
+        
+        # Store accuracy
+        self.shared_state.button_press_accuracies.append(accuracy)
+        self.shared_state.button_press_seat_pos.append(current_pos_mm)
+        
+        # Simple output
+        print(f"Button #{self.button_press_count}: accuracy={accuracy:.1f}% (pos={current_pos_mm:.1f}mm, target={optimal_pos:.1f}mm)")
+    
     def on_back_button(self, event):
         self.shared_state.stop_writing_stats()
         parent = self.GetParent()
@@ -2179,17 +2154,30 @@ class ModernStatsDisplay(wx.Panel):
             distance_str = f"{int(distance_meters)} m"
         self.distance_value_label.SetLabel(distance_str)
 
-        # Update accuracy (calculate as score / (score + misses) * 100)
-        total_attempts = self.shared_state.score + self.shared_state.misses
-        if total_attempts > 0:
-            accuracy = (self.shared_state.score / total_attempts) * 100
+        # Update accuracy based on mode
+        if not self.shared_state.is_automatic_mode:
+            # MANUAL MODE: accuracy from button press timing
+            if self.shared_state.button_press_accuracies:
+                # Average all button press accuracies
+                accuracy = sum(self.shared_state.button_press_accuracies) / len(self.shared_state.button_press_accuracies)
+            else:
+                # No button presses yet - start at 0%
+                accuracy = 0.0
             accuracy_str = f"{int(accuracy)}%"
         else:
-            accuracy_str = "0%"
+            # AUTOMATIC MODE: accuracy from FES score/misses
+            total_attempts = self.shared_state.score + self.shared_state.misses
+            if total_attempts > 0:
+                accuracy = (self.shared_state.score / total_attempts) * 100
+            else:
+                accuracy = 0.0
+            accuracy_str = f"{int(accuracy)}%"
+        
         self.accuracy_value_label.SetLabel(accuracy_str)
 
-        # Update the color of accuracy label based on percentage
-        if total_attempts > 0:
+        # Update accuracy label color based on percentage (only if we have button presses)
+        has_button_presses = len(self.shared_state.button_press_accuracies) > 0
+        if has_button_presses:
             if accuracy >= 90:
                 self.accuracy_value_label.SetForegroundColour(wx.Colour(76, 175, 80))  # Green
             elif accuracy >= 70:
@@ -2220,6 +2208,10 @@ class ModernStatsDisplay(wx.Panel):
         self.shared_state.L_foot_force = []
         self.shared_state.R_foot_force = []
         self.shared_state.switch_press = []
+        
+        # Reset button press accuracy tracking
+        self.shared_state.button_press_accuracies = []
+        self.shared_state.button_press_seat_pos = []
 
         # Reset display
         self.time_value_label.SetLabel("00:00:00")

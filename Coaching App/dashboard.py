@@ -41,7 +41,11 @@ class AccountManager:
         try:
             with open(self.accounts_file, "w") as f:
                 json.dump(self.accounts, f, indent=2)
-            print(f"Successfully saved accounts to {self.accounts_file}")
+                f.flush()  # Ensure data is written to disk
+                try:
+                    os.fsync(f.fileno())  # Force write to disk
+                except (AttributeError, OSError):
+                    pass  # fsync may not be available on all systems
         except Exception as e:
             print(f"Error saving accounts: {e}")
             import traceback
@@ -1311,51 +1315,19 @@ class MapCard(wx.Panel):
         self.update_location_status()
     
     def get_cumulative_distance(self):
-        """Get cumulative total distance for the current user - calculate from CSV first, then use user_accounts.json as fallback"""
+        """Get cumulative total distance for the current user from user_accounts.json"""
         if not self.username:
             return 0.0
         
-        cumulative_value = 0.0
-        
-        # First, try to calculate from CSV (sum of all session distances)
+        accounts_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_accounts.json")
         try:
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            user_session_dir = os.path.join(script_dir, "user_session_data", self.username)
-            csv_file = os.path.join(user_session_dir, "session_summary.csv")
-            
-            if os.path.exists(csv_file):
-                with open(csv_file, 'r', newline='') as f:
-                    reader = csv.DictReader(f)
-                    for row in reader:
-                        # Skip invalid rows
-                        date_str = row.get("Date", "").strip() if row.get("Date") else ""
-                        if not date_str or date_str.startswith("//") or date_str.startswith("```"):
-                            continue
-                        
-                        try:
-                            distance_str = row.get("Total Distance (m)", "0")
-                            if distance_str is not None and str(distance_str).strip():
-                                distance = float(distance_str)
-                                cumulative_value += distance
-                        except (ValueError, TypeError):
-                            continue
+            with open(accounts_file, "r") as f:
+                accounts = json.load(f)
+            user_data = accounts.get(self.username, {})
+            return float(user_data.get("cumulative_distance_m", 0.0))
         except Exception as e:
-            print(f"Failed to calculate cumulative distance from CSV for {self.username}: {e}")
-        
-        # If CSV calculation resulted in 0, try user_accounts.json as fallback
-        if cumulative_value == 0.0:
-            try:
-                accounts_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_accounts.json")
-                with open(accounts_file, "r") as f:
-                    accounts = json.load(f)
-                user_data = accounts.get(self.username, {})
-                fallback_value = float(user_data.get("cumulative_distance_m", 0.0))
-                if fallback_value > 0:
-                    cumulative_value = fallback_value
-            except Exception as e:
-                print(f"Error loading cumulative distance from accounts for {self.username}: {e}")
-        
-        return cumulative_value
+            print(f"Error loading cumulative distance for {self.username}: {e}")
+            return 0.0
     
     def update_location_status(self):
         """Update lock/unlock status of locations based on cumulative distance with looping"""
@@ -1713,10 +1685,7 @@ class DashboardPage(wx.Panel):
                     consecutive_count = 1
         
         # Always update achievements and statistics, then save
-        self.account_manager.accounts[username]['achievements'] = achievements
-        self.account_manager.accounts[username]['total_sessions'] = total_sessions
-        
-        # Calculate longest distance from sessions
+        # Calculate longest distance and cumulative distance from sessions
         longest_distance = 0.0
         cumulative_distance = 0.0
         for session in sessions:
@@ -1724,12 +1693,11 @@ class DashboardPage(wx.Panel):
             longest_distance = max(longest_distance, distance)
             cumulative_distance += distance  # Sum all session distances
         
+        # Update all statistics based on session data
+        self.account_manager.accounts[username]['achievements'] = achievements
+        self.account_manager.accounts[username]['total_sessions'] = total_sessions
         self.account_manager.accounts[username]['longest_distance'] = longest_distance
-        # Update cumulative distance from CSV (sum of all session distances)
         self.account_manager.accounts[username]['cumulative_distance_m'] = cumulative_distance
-        
-        print(f"Updated user '{username}': total_sessions={total_sessions}, longest_distance={longest_distance}, cumulative_distance={cumulative_distance}")
-        print(f"Achievements: {achievements}")
         
         # Save updated data to file
         self.account_manager.save_accounts()
@@ -1759,6 +1727,10 @@ class DashboardPage(wx.Panel):
                 with open(csv_file, 'r', newline='') as f:
                     reader = csv.DictReader(f)
                     for row in reader:
+                        # Skip completely empty rows (all values are empty/whitespace)
+                        if not any(str(v).strip() for v in row.values() if v):
+                            continue
+                        
                         # Skip invalid rows (check if Date field exists and is valid)
                         date_str = row.get("Date", "").strip() if row.get("Date") else ""
                         if not date_str or date_str.startswith("//") or date_str.startswith("```"):
@@ -1823,8 +1795,6 @@ class DashboardPage(wx.Panel):
                 traceback.print_exc()
         else:
             print(f"CSV file does not exist: {csv_file}")
-        
-        print(f"Loaded {total_sessions} sessions, longest_distance={longest_distance}")
         
         # Update achievements based on session data
         self.update_achievements_from_sessions(username, sessions, total_sessions)
