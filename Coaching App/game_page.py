@@ -3514,7 +3514,7 @@ class ModernFESIndicator(wx.Panel):
         main_sizer.AddStretchSpacer()  # Top flexible space
         
         # Title
-        title_label = wx.StaticText(self, label="FES Timing Indicator")
+        title_label = wx.StaticText(self, label="Button Press Indicator")
         title_label.SetForegroundColour(wx.Colour(64, 64, 64))
         title_label.SetFont(wx.Font(36, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
         main_sizer.Add(title_label, 0, wx.ALIGN_CENTER)
@@ -3554,13 +3554,37 @@ class ModernFESIndicator(wx.Panel):
         bar_y = height // 2 - 25  # Center the bar vertically
         bar_height = 50  # Even thicker bar
         bar_padding = 60
-        press_bar_width = 80  # Width of PRESS bar (right end)
-        release_bar_width = int(80 * 1.2 * 1.1)  # RELEASE bar is 32% wider than original (106 pixels)
+        
+        # Determine if in automatic mode
+        is_automatic = hasattr(self.shared_state, 'is_automatic_mode') and self.shared_state.is_automatic_mode
+        
+        # Base widths
+        base_press_width = int(80 * 1.1)  # Width of PRESS bar (right end) - 10% wider (88 pixels)
+        base_release_width = int(80 * 1.2 * 1.1 * 1.1)  # RELEASE bar - 10% wider than before (116 pixels)
+        
+        # In automatic mode: make orange bar 8% narrower, then make green bar match orange width
+        if is_automatic:
+            # Start with 20% wider bars (from previous change)
+            wider_release_width = int(base_release_width * 1.2)
+            wider_press_width = int(base_press_width * 1.2)
+            
+            # Make orange bar 8% narrower
+            release_bar_width = int(wider_release_width * 0.92)  # 8% narrower
+            
+            # Make green bar match orange bar width exactly
+            press_bar_width = release_bar_width  # Same width as orange bar
+        else:
+            press_bar_width = base_press_width  # Keep original width in manual mode
+            release_bar_width = base_release_width  # Keep original width in manual mode
+        
         bar_width = width - (2 * bar_padding) - release_bar_width - press_bar_width  # Account for end bars
         main_bar_x = bar_padding + release_bar_width  # Start after the left end bar
         
         # Draw Release bar (left end) - extends to the left
         release_bar_x = bar_padding - (release_bar_width - press_bar_width)  # Extend left by the difference
+        # In automatic mode, move orange button 10 pixels to the left
+        if is_automatic:
+            release_bar_x -= 10
         dc.SetBrush(wx.Brush(wx.Colour(255, 152, 0)))  # Orange for release
         dc.SetPen(wx.TRANSPARENT_PEN)
         dc.DrawRoundedRectangle(release_bar_x, bar_y, release_bar_width, bar_height, 25)
@@ -3568,6 +3592,9 @@ class ModernFESIndicator(wx.Panel):
         # Draw Press bar (right end)
         press_bar_offset = 33  # Offset to move PRESS bar to the right
         press_bar_x = bar_padding + release_bar_width + bar_width + press_bar_offset
+        # In automatic mode, move green button 20 pixels to the left
+        if is_automatic:
+            press_bar_x -= 20
         dc.SetBrush(wx.Brush(wx.Colour(76, 175, 80)))  # Green for press
         dc.DrawRoundedRectangle(press_bar_x, bar_y, press_bar_width, bar_height, 25)
         

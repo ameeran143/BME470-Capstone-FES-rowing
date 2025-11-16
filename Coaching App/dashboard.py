@@ -15,7 +15,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 
 # Configuration: Set to False to skip login and use demo account automatically
-REQUIRE_LOGIN = False
+REQUIRE_LOGIN = True
 
 class AccountManager:
     """Manages user accounts and authentication"""
