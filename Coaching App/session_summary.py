@@ -1,6 +1,6 @@
 # session summary page
 import wx
-from button import CustomButton
+from game_page import ModernCard
 
 class SessionSummaryPage(wx.Panel):
     def __init__(self, parent, summary_data):
@@ -38,12 +38,13 @@ class SessionSummaryPage(wx.Panel):
         
         main_sizer.AddStretchSpacer()
         
-        # Exit button (bottom-right)
+        # Exit button (bottom-right) - matching game screen button style
         button_container = wx.BoxSizer(wx.HORIZONTAL)
         button_container.AddStretchSpacer()
         
-        self.exit_button = CustomButton(self, label="\nExit\n", size=(220, 70), font=30, handler=self.on_exit)
-        button_container.Add(self.exit_button, 0, wx.ALL, 20)
+        self.exit_button = ModernCard(self, "Exit →", self.on_exit, enabled=True, font_size=24)
+        self.exit_button.SetMinSize((220, 70))
+        button_container.Add(self.exit_button, 0, wx.ALL, 10)
         
         main_sizer.Add(button_container, 0, wx.EXPAND | wx.ALL, 0)
         main_sizer.AddStretchSpacer()

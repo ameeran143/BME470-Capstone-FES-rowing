@@ -522,21 +522,46 @@ class SharedStats:
             return raw_pos
         return None
     
+    def set_user_name(self, username):
+        """Set the current user name and ensure their directory exists"""
+        if not username:
+            username = "demo"
+        
+        self.user_name = username
+        
+        # Ensure user directory exists
+        self.get_user_data_dir()
+        
+        # Reset cumulative distance loading so it reloads for the new user
+        self._cumulative_loaded = False
+        self._cumulative_user = None
+    
     def get_user_data_dir(self):
         """Get the user-specific data directory, creating it if needed"""
         # Use user_name for folder name, sanitize for filesystem
         if not self.user_name:
-            self.user_name = "Unknown User"
+            self.user_name = "demo"
         
         # Sanitize user name for filesystem (remove invalid characters)
         safe_name = "".join(c for c in self.user_name if c.isalnum() or c in (' ', '-', '_')).strip()
         if not safe_name:
-            safe_name = "Unknown User"
+            safe_name = "demo"
         
         # Create user-specific subfolder
         base_dir = os.path.join(os.path.dirname(__file__), "user_session_data")
         user_dir = os.path.join(base_dir, safe_name)
         os.makedirs(user_dir, exist_ok=True)
+        
+        # Ensure session_summary.csv file exists (create with headers if it doesn't exist)
+        csv_file = os.path.join(user_dir, "session_summary.csv")
+        if not os.path.exists(csv_file):
+            try:
+                with open(csv_file, 'w', newline='') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(['Date', 'Name', 'Total Time (min:sec)', 'Average Power (W)', 'Total Distance (m)', 'Average Accuracy (%)'])
+            except Exception as e:
+                print(f"Error creating session_summary.csv for {safe_name}: {e}")
+        
         return user_dir
     
     def ensure_cumulative_distance_loaded(self):
@@ -1891,11 +1916,6 @@ class GamePage(wx.Panel):
         button_container = wx.BoxSizer(wx.HORIZONTAL)
         button_container.AddStretchSpacer()
         
-        # initialize back button - matching User Dashboard button style
-        self.back_button = ModernCard(self, "← Back", self.on_back_button, enabled=True, font_size=24)
-        self.back_button.SetMinSize((170, 70))
-        button_container.Add(self.back_button, 0, wx.ALL, 10)
-        
         # initialize finish session button (bottom-right) - matching User Dashboard button style
         self.finish_button = ModernCard(self, "Finish Session →", self.on_finish_session, enabled=True, font_size=24)
         self.finish_button.SetMinSize((308, 70))
@@ -1999,6 +2019,9 @@ class GamePage(wx.Panel):
         if self.shared_state.anc_playback_mode:
             self.shared_state.anc_index = 0
             self.shared_state.anc_playback_start_time = None
+        
+        # CRITICAL: Ensure user directory exists (creates it if needed)
+        self.shared_state.get_user_data_dir()
         
         # CRITICAL: Reload cumulative distance from user_accounts.json (updated by dashboard)
         # This ensures we use the value calculated from session summaries, not stale data
@@ -2243,14 +2266,6 @@ class GamePage(wx.Panel):
         # Reset temporary storage
         self.shared_state.button_press_accuracy_temp = None
         self.shared_state.button_press_position_mm = None
-    
-    def on_back_button(self, event):
-        self.shared_state.stop_writing_stats()
-        # Stop distance calculation when leaving game screen
-        self.shared_state.game_started = False
-        parent = self.GetParent()
-        parent.switch_to_start_page()
-    
     
     def on_finish_session(self, event):
         """Handle finish session button click - save summary and show summary screen"""

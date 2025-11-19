@@ -110,6 +110,22 @@ class AccountManager:
         
         self.accounts[username] = user_data
         self.save_accounts()
+        
+        # Create user session directory and session_summary.csv file
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        user_session_dir = os.path.join(script_dir, "user_session_data", username)
+        os.makedirs(user_session_dir, exist_ok=True)
+        
+        # Create session_summary.csv with headers if it doesn't exist
+        csv_file = os.path.join(user_session_dir, "session_summary.csv")
+        if not os.path.exists(csv_file):
+            try:
+                with open(csv_file, 'w', newline='') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(['Date', 'Name', 'Total Time (min:sec)', 'Average Power (W)', 'Total Distance (m)', 'Average Accuracy (%)'])
+            except Exception as e:
+                print(f"Error creating session_summary.csv for {username}: {e}")
+        
         return True, "Account created successfully"
     
     def authenticate(self, username, password):
@@ -1485,6 +1501,12 @@ class DashboardPage(wx.Panel):
             # Skip login and automatically use demo account
             self.current_username = "demo"
             self.is_logged_in = True
+            
+            # Update SharedStats with the demo username
+            parent = self.GetParent()
+            if hasattr(parent, 'shared_state') and hasattr(parent.shared_state, 'set_user_name'):
+                parent.shared_state.set_user_name(self.current_username)
+            
             # Load user account data
             if self.current_username in self.account_manager.accounts:
                 self.user_data = self.account_manager.accounts[self.current_username].copy()
@@ -1522,6 +1544,11 @@ class DashboardPage(wx.Panel):
         """Refresh dashboard data and update all cards - called when navigating to dashboard"""
         if not self.is_logged_in or not self.current_username:
             return
+        
+        # Update SharedStats with the current username (in case it changed)
+        parent = self.GetParent()
+        if hasattr(parent, 'shared_state') and hasattr(parent.shared_state, 'set_user_name'):
+            parent.shared_state.set_user_name(self.current_username)
         
         # Reload session data for the logged-in user (this also updates achievements and statistics)
         # update_achievements_from_sessions() is called inside load_user_session_data() and saves to JSON
@@ -1817,6 +1844,12 @@ class DashboardPage(wx.Panel):
             self.user_data = login_dialog.user_data
             self.current_username = self.user_data["username"]
             self.is_logged_in = True
+            
+            # Update SharedStats with the logged-in username
+            parent = self.GetParent()
+            if hasattr(parent, 'shared_state') and hasattr(parent.shared_state, 'set_user_name'):
+                parent.shared_state.set_user_name(self.current_username)
+            
             login_dialog.Destroy()
             # Notify start page to show logout button - use CallLater with delay to ensure UI updates
             # Call multiple times to ensure it works (with increasing delays)
