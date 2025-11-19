@@ -28,6 +28,7 @@ except ImportError:
     print("pygame not installed - controller support disabled. Install with: pip install pygame")
 import csv
 import math
+from map_logic import MapLogic
 import json
 from PIL import Image, ImageDraw
 from scipy import signal
@@ -133,6 +134,7 @@ class SharedStats:
         self.misses = 0
         self.total_distance = 0.0  # Total distance in meters
         self.last_update_time = time.time()  # For distance calculations
+        self.game_started = False  # Flag to prevent distance calculation until game is properly reset
 
         # sensor data
         self.handle_force = []  # Handle force (ai20)
@@ -381,10 +383,7 @@ class SharedStats:
                         print(f"⚠️  Failed to load CSV: {e}")
                         mode = None
                 else:
-                    # No CSV found - cannot proceed without data source
-                    print("⚠️  No data source available (no hardware, no CSV)")
-                    print("   Please connect hardware or place CSV file at:")
-                    print(f"   {default_csv_path}")
+                    # No CSV found - mode will remain None (silent fallback)
                     mode = None
         
         # Set the mode
@@ -427,7 +426,7 @@ class SharedStats:
             self.hardware_mode = False
             self.anc_playback_mode = False
             self.hardware_connected = False
-            print("⚠️  WARNING: No data source configured")
+            # No data source configured (silent - will be detected later in reset_game)
     
     def set_mode(self, mode, csv_path=None):
         """Manually set the mode. Modes: 'hardware' or 'csv_playback'
@@ -579,40 +578,30 @@ class SharedStats:
             print(f"Unable to save accounts file: {e}")
     
     def _maybe_persist_cumulative_distance(self, force=False):
-        """Persist cumulative distance when it changes significantly or when forced"""
-        if not getattr(self, "_cumulative_loaded", False):
-            return
-        
-        now = time.time()
-        delta = abs(self.cumulative_distance_live - self.cumulative_distance_saved)
-        if not force:
-            if delta < 0.25 and (now - self._last_cumulative_persist) < 2.0:
-                return
-        
-        accounts = self._load_accounts_data()
-        user_key = self.user_name or "demo"
-        user_entry = accounts.setdefault(user_key, {})
-        user_entry["cumulative_distance_m"] = round(self.cumulative_distance_live, 2)
-        self._save_accounts_data(accounts)
-        self.cumulative_distance_saved = self.cumulative_distance_live
-        self._last_cumulative_persist = now
+        """DISABLED: Cumulative distance is now calculated from session summaries by dashboard.
+        Do not persist cumulative distance from game screen - it conflicts with dashboard calculation."""
+        # Do nothing - cumulative distance is calculated from session summaries
+        pass
     
     def force_persist_cumulative_distance(self):
-        """Force cumulative distance to be saved immediately"""
-        self._maybe_persist_cumulative_distance(force=True)
+        """DISABLED: Cumulative distance is now calculated from session summaries by dashboard."""
+        # Do nothing - cumulative distance is calculated from session summaries
+        pass
     
     def increment_cumulative_distance(self, distance_increment):
-        """Increase cumulative distance in memory and schedule persistence"""
-        if distance_increment <= 0:
-            return
-        self.ensure_cumulative_distance_loaded()
-        self.cumulative_distance_live += distance_increment
-        self._maybe_persist_cumulative_distance()
+        """DISABLED: Do not increment cumulative_distance_live during game.
+        Cumulative distance is calculated from session summaries by dashboard.
+        For display during game, we use: base_cumulative (from sessions) + current session distance."""
+        # Do nothing - cumulative distance is calculated from session summaries
+        pass
     
     def get_cumulative_total_distance(self):
-        """Return the live cumulative distance for the current user"""
+        """Return cumulative distance for display: base (from sessions) + current session distance.
+        Cumulative distance is calculated from session summaries by dashboard, not incremented here."""
         self.ensure_cumulative_distance_loaded()
-        return self.cumulative_distance_live
+        # cumulative_distance_live is the BASE cumulative distance from previous sessions (calculated by dashboard)
+        # Add current session distance for display
+        return self.cumulative_distance_live + self.total_distance
         
     def create_stats_file(self):
         """Disabled - no longer creating rowing stats files, only session summaries"""
@@ -1255,7 +1244,7 @@ class SharedStats:
         
         # No simulation mode - only hardware or CSV playback
         # If we reach here, no valid data source is available
-        print("⚠️  No data source - waiting for hardware or CSV playback")
+        # (This is normal during initialization - mode detection happens in reset_game)
         
         # update score and misses
         if self.converted_seat_position:
@@ -1275,8 +1264,26 @@ class SharedStats:
     
     def calculate_distance(self):
         """Calculate realistic rowing distance based on power and time"""
+        # CRITICAL: Don't calculate distance until game is properly started/reset
+        # This prevents distance jumps when CSV playback processes data before reset_game() is called
+        if not self.game_started:
+            return
+        
         current_time = time.time()
         time_delta = current_time - self.last_update_time
+        
+        # Fix bug: If time_delta is suspiciously large (> 1 second), it means this is the first
+        # call after initialization or a long pause. Reset last_update_time to prevent
+        # incorrectly calculating a huge distance jump.
+        if time_delta > 1.0:
+            # Reset to current time to start fresh - this prevents distance jumps on game start
+            self.last_update_time = current_time
+            time_delta = 0.0
+        
+        # Only proceed if we have a valid time delta
+        if time_delta <= 0:
+            return
+        
         self.last_update_time = current_time
         
         if self.avg_power and time_delta > 0:
@@ -1289,7 +1296,7 @@ class SharedStats:
             drag_factor = 120
             
             # Only calculate distance if there's meaningful power (reduce noise)
-            if current_power > 5:  # Minimum 10W to register movement
+            if current_power > 5:  # Minimum 5W to register movement
                 # Distance per time interval based on power
                 # Formula: distance = (power / drag_factor) * time
                 distance_increment = (current_power / drag_factor) * time_delta
@@ -1993,6 +2000,16 @@ class GamePage(wx.Panel):
             self.shared_state.anc_index = 0
             self.shared_state.anc_playback_start_time = None
         
+        # CRITICAL: Reload cumulative distance from user_accounts.json (updated by dashboard)
+        # This ensures we use the value calculated from session summaries, not stale data
+        self.shared_state._cumulative_loaded = False
+        self.shared_state.ensure_cumulative_distance_loaded()
+        
+        # CRITICAL: Mark game as started and reset last_update_time to prevent distance jumps
+        # This must happen AFTER resetting stats but BEFORE timer starts processing data
+        self.shared_state.game_started = True
+        self.shared_state.last_update_time = time.time()
+        
         # Restart timer if it was stopped
         if not self.timer.IsRunning():
             self.timer.Start(100)
@@ -2229,6 +2246,8 @@ class GamePage(wx.Panel):
     
     def on_back_button(self, event):
         self.shared_state.stop_writing_stats()
+        # Stop distance calculation when leaving game screen
+        self.shared_state.game_started = False
         parent = self.GetParent()
         parent.switch_to_start_page()
     
@@ -2240,6 +2259,9 @@ class GamePage(wx.Panel):
         
         # Stop writing stats
         self.shared_state.stop_writing_stats()
+        
+        # Stop distance calculation when finishing session
+        self.shared_state.game_started = False
         
         # Save session summary to CSV
         summary_data = self.shared_state.save_session_summary()
@@ -2415,16 +2437,10 @@ class LocationProgressPanel(wx.Panel):
         self.shared_state = shared_state
         self.SetMinSize((-1, 130))
         
-        # Location milestones (distance in meters to reach each location)
-        self.location_milestones = [
-            ("Hawaii", 0),
-            ("Antarctica", 20),
-            ("Amazon", 40),
-            ("Japan", 60),
-            ("Australia", 80),
-        ]
-        self.location_interval = 20.0
-        self.cycle_distance = self.location_interval * len(self.location_milestones)
+        # Use shared map logic for consistency with dashboard
+        self.location_milestones = MapLogic.LOCATION_MILESTONES
+        self.location_interval = MapLogic.LOCATION_INTERVAL
+        self.cycle_distance = MapLogic.CYCLE_DISTANCE
         
         # Create main sizer
         main_sizer = wx.BoxSizer(wx.VERTICAL)
@@ -2453,14 +2469,14 @@ class LocationProgressPanel(wx.Panel):
         self.progress_bar_wrapper.SetBackgroundColour(wx.Colour(255, 255, 255))
         self.progress_bar_wrapper.Bind(wx.EVT_SIZE, self.OnProgressBarWrapperSize)
         
-        # Progress bar with percentage label
+        # Progress bar with distance label (showing meters in current segment)
         progress_bar_container = wx.BoxSizer(wx.VERTICAL)
         
-        # Percentage indicator (small, above progress bar)
-        self.percentage_label = wx.StaticText(self.progress_bar_wrapper, label="2%")
-        self.percentage_label.SetForegroundColour(wx.Colour(150, 150, 150))
-        self.percentage_label.SetFont(wx.Font(11, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
-        progress_bar_container.Add(self.percentage_label, 0, wx.ALIGN_LEFT)
+        # Distance indicator (small, above progress bar) - shows meters in current 0-20m segment
+        self.distance_label = wx.StaticText(self.progress_bar_wrapper, label="0.0m / 20m")
+        self.distance_label.SetForegroundColour(wx.Colour(150, 150, 150))
+        self.distance_label.SetFont(wx.Font(11, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        progress_bar_container.Add(self.distance_label, 0, wx.ALIGN_LEFT)
         progress_bar_container.AddSpacer(3)
         
         # Progress bar (custom drawn)
@@ -2568,39 +2584,24 @@ class LocationProgressPanel(wx.Panel):
             dc.DrawRoundedRectangle(0, 0, progress_width, height, 10)
     
     def update_display(self):
-        """Update location and progress display"""
+        """Update location and progress display using shared MapLogic"""
         cumulative_total_distance = self.shared_state.get_cumulative_total_distance()
-        position_in_cycle = cumulative_total_distance % self.cycle_distance if self.cycle_distance > 0 else 0.0
         
-        current_index = 0
-        for i, (_, milestone_distance) in enumerate(self.location_milestones):
-            if position_in_cycle >= milestone_distance:
-                current_index = i
-            else:
-                break
-        
-        current_location_name = self.location_milestones[current_index][0]
-        next_index = (current_index + 1) % len(self.location_milestones)
-        next_location_name = self.location_milestones[next_index][0]
-        
-        current_milestone = self.location_milestones[current_index][1]
-        next_milestone = self.location_milestones[next_index][1]
-        if next_milestone > current_milestone:
-            segment_length = next_milestone - current_milestone
-        else:
-            segment_length = self.cycle_distance - current_milestone
-        
-        distance_into_segment = position_in_cycle - current_milestone
-        if distance_into_segment < 0:
-            distance_into_segment += self.cycle_distance
-        progress_to_next = min(1.0, distance_into_segment / segment_length) if segment_length > 0 else 0.0
+        # Use shared map logic for consistent calculation
+        location_info = MapLogic.get_current_location_info(cumulative_total_distance)
         
         # Update location and progress labels
-        self.shared_state.current_location = current_location_name
-        self.location_label.SetLabel(current_location_name)
-        self.current_progress = progress_to_next
-        self.percentage_label.SetLabel(f"{int(progress_to_next * 100)}%")
-        self.next_location_label.SetLabel(next_location_name)
+        self.shared_state.current_location = location_info['current_location']
+        self.location_label.SetLabel(location_info['current_location'])
+        self.current_progress = location_info['progress_to_next']
+        
+        # Get distance traveled in current segment (0-20m) - already calculated correctly
+        distance_in_segment = location_info['distance_into_segment']
+        segment_length = location_info['segment_length']
+        
+        # Update distance label to show meters in current segment (0-20m)
+        self.distance_label.SetLabel(f"{distance_in_segment:.1f}m / {segment_length:.0f}m")
+        self.next_location_label.SetLabel(location_info['next_location'])
         
         # Refresh progress bar and scene panel (to update map image)
         self.progress_bar_panel.Refresh()
@@ -2639,17 +2640,10 @@ class RowingScenePanel(wx.Panel):
         # Current location theme
         self.current_location = "Hawaii"
         
-        # Location milestones (distance in meters to reach each location) - matches dashboard
-        # These loop every 20m increments per location (total 100m per loop)
-        self.location_milestones = [
-            ("Hawaii", 0),
-            ("Antarctica", 20),
-            ("Amazon", 40),
-            ("Japan", 60),
-            ("Australia", 80),
-        ]
-        self.location_interval = 20.0
-        self.cycle_distance = self.location_interval * len(self.location_milestones)
+        # Use shared map logic for consistency
+        self.location_milestones = MapLogic.LOCATION_MILESTONES
+        self.location_interval = MapLogic.LOCATION_INTERVAL
+        self.cycle_distance = MapLogic.CYCLE_DISTANCE
         
         # Predefined iceberg shapes to cycle through (no randomness)
         self.iceberg_templates = [
@@ -3620,17 +3614,10 @@ class RowingScenePanel(wx.Panel):
             # Manual override: use the specified location
             self.current_location = self.shared_state.location_override
         else:
-            # Automatic mode: switch based on live cumulative distance
+            # Automatic mode: switch based on live cumulative distance using shared MapLogic
             cumulative_total_distance = self.shared_state.get_cumulative_total_distance()
-            position_in_cycle = cumulative_total_distance % self.cycle_distance if self.cycle_distance > 0 else 0.0
-            
-            current_location = self.location_milestones[0][0]
-            for location_name, milestone_distance in self.location_milestones:
-                if position_in_cycle >= milestone_distance:
-                    current_location = location_name
-                else:
-                    break
-            self.current_location = current_location
+            location_info = MapLogic.get_current_location_info(cumulative_total_distance)
+            self.current_location = location_info['current_location']
         
         # Update shared_state so LocationProgressPanel can access it
         self.shared_state.current_location = self.current_location
@@ -3654,14 +3641,8 @@ class RowingScenePanel(wx.Panel):
             self.current_location = self.shared_state.location_override
         else:
             cumulative_total_distance = self.shared_state.get_cumulative_total_distance()
-            position_in_cycle = cumulative_total_distance % self.cycle_distance if self.cycle_distance > 0 else 0.0
-            current_location = self.location_milestones[0][0]
-            for location_name, milestone_distance in self.location_milestones:
-                if position_in_cycle >= milestone_distance:
-                    current_location = location_name
-                else:
-                    break
-            self.current_location = current_location
+            location_info = MapLogic.get_current_location_info(cumulative_total_distance)
+            self.current_location = location_info['current_location']
         # Update shared_state
         self.shared_state.current_location = self.current_location
         

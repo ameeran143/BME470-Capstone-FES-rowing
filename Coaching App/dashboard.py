@@ -13,6 +13,7 @@ import csv
 import numpy as np
 from collections import defaultdict
 from datetime import datetime, timedelta
+from map_logic import MapLogic
 
 # Configuration: Set to False to skip login and use demo account automatically
 REQUIRE_LOGIN = True
@@ -1155,14 +1156,8 @@ class MapCard(wx.Panel):
         # Store username for distance calculation
         self.username = username
         
-        # Location milestones (distance in meters to reach each location) - matching game_page.py
-        self.location_milestones = [
-            ("Hawaii", 0),
-            ("Antarctica", 20),
-            ("Amazon", 40),
-            ("Japan", 60),
-            ("Australia", 80),
-        ]
+        # Use shared map logic for consistency with game screen
+        self.location_milestones = MapLogic.LOCATION_MILESTONES
         
         # Store references to location widgets for dynamic updates
         self.location_widgets = {}
@@ -1330,7 +1325,7 @@ class MapCard(wx.Panel):
             return 0.0
     
     def update_location_status(self):
-        """Update lock/unlock status of locations based on cumulative distance with looping"""
+        """Update lock/unlock status of locations based on cumulative distance using shared MapLogic"""
         cumulative_distance = self.get_cumulative_distance()
         
         import os
@@ -1339,13 +1334,13 @@ class MapCard(wx.Panel):
         check_path = os.path.join(assets_dir, "check.png")
         lock_path = os.path.join(assets_dir, "lock.png")
         
+        # Get unlocked locations using shared MapLogic
+        unlocked_locations = MapLogic.get_unlocked_locations(cumulative_distance)
+        
         # Update each location - once unlocked, stays unlocked forever
-        for i, (location_name, milestone_distance) in enumerate(self.location_milestones):
+        for location_name, milestone_distance, is_unlocked in unlocked_locations:
             if location_name not in self.location_widgets:
                 continue
-            
-            # Unlock location once milestone distance has been reached
-            is_unlocked = cumulative_distance >= milestone_distance
             
             widgets = self.location_widgets[location_name]
             

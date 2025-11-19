@@ -38,11 +38,11 @@ class SessionSummaryPage(wx.Panel):
         
         main_sizer.AddStretchSpacer()
         
-        # Exit to Dashboard button (bottom-right)
+        # Exit button (bottom-right)
         button_container = wx.BoxSizer(wx.HORIZONTAL)
         button_container.AddStretchSpacer()
         
-        self.exit_button = CustomButton(self, label="\nExit to Dashboard\n", size=(220, 70), font=30, handler=self.on_exit)
+        self.exit_button = CustomButton(self, label="\nExit\n", size=(220, 70), font=30, handler=self.on_exit)
         button_container.Add(self.exit_button, 0, wx.ALL, 20)
         
         main_sizer.Add(button_container, 0, wx.EXPAND | wx.ALL, 0)
@@ -134,7 +134,7 @@ class SessionSummaryPage(wx.Panel):
         return card_panel
     
     def on_exit(self, event):
-        """Handle exit to dashboard button click"""
+        """Handle exit button click - navigate to dashboard"""
         parent = self.GetParent()
-        parent.switch_to_start_page()
+        parent.switch_to_dashboard()
 
