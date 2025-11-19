@@ -2319,7 +2319,7 @@ class LocationProgressPanel(wx.Panel):
         
         # Create main sizer
         main_sizer = wx.BoxSizer(wx.VERTICAL)
-        main_sizer.AddSpacer(20)
+        main_sizer.AddSpacer(10)
         
         # Location header
         location_header = wx.StaticText(self, label="CURRENT LOCATION")
@@ -2333,7 +2333,7 @@ class LocationProgressPanel(wx.Panel):
         self.location_label.SetForegroundColour(wx.Colour(33, 150, 243))  # Blue
         self.location_label.SetFont(wx.Font(36, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
         main_sizer.Add(self.location_label, 0, wx.ALIGN_CENTER)
-        main_sizer.AddSpacer(15)
+        #main_sizer.AddSpacer(5)
         
         # Progress section - horizontal layout
         progress_container = wx.BoxSizer(wx.HORIZONTAL)
@@ -3579,14 +3579,14 @@ class ModernFESIndicator(wx.Panel):
         
         # Create sizer with labels
         main_sizer = wx.BoxSizer(wx.VERTICAL)
-        main_sizer.AddStretchSpacer()  # Top flexible space
+        #main_sizer.AddStretchSpacer()  # Top flexible space
         
         # Title
         title_label = wx.StaticText(self, label="Button Press Indicator")
         title_label.SetForegroundColour(wx.Colour(64, 64, 64))
         title_label.SetFont(wx.Font(36, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
         main_sizer.Add(title_label, 0, wx.ALIGN_CENTER)
-        main_sizer.AddSpacer(60)
+        main_sizer.AddSpacer(120)
         
         # Labels sizer
         labels_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -3604,6 +3604,11 @@ class ModernFESIndicator(wx.Panel):
         labels_sizer.Add(push_label, 0, wx.ALIGN_CENTER_VERTICAL)
         
         main_sizer.Add(labels_sizer, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 60)
+        
+        #bar_spacer = wx.Panel(self)
+        #bar_spacer.SetMinSize((-1, 80))  # Reserve height for the bar
+        #main_sizer.Add(bar_spacer, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 60)
+
         main_sizer.AddSpacer(100)
         main_sizer.AddStretchSpacer()  # Bottom flexible space
         
@@ -3619,7 +3624,7 @@ class ModernFESIndicator(wx.Panel):
         dc.Clear()
         
         # Progress bar dimensions - much larger and centered
-        bar_y = height // 2 - 25  # Center the bar vertically
+        bar_y = height // 2 - 5  # Center the bar vertically
         bar_height = 50  # Even thicker bar
         bar_padding = 60
         

@@ -159,6 +159,10 @@ class MainFrame(wx.Frame):
     
     def switch_to_game_tutorial(self):
         self.current_panel.Hide()
+        # <<< Reset tutorial state on entry
+        self.game_tutorial_page.step = 0
+        self.game_tutorial_page.show_step()
+        
         self.game_tutorial_page.Show()
         self.current_panel = self.game_tutorial_page
         self.Refresh()
