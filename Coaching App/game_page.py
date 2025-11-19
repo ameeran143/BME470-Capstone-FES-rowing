@@ -159,10 +159,17 @@ class SharedStats:
         self.button_press_seat_pos = []  # store seat position at button-press
         self.msg = False
         
-        # Button press accuracy tracking (for manual mode)
-        self.button_press_accuracies = []  # List of individual button press accuracies (0-100%)
+        # Button press-hold-release accuracy tracking (for manual mode)
+        self.button_press_accuracies = []  # List of press accuracies when button pressed (0-100%)
+        self.button_release_accuracies = []  # List of release accuracies when button released (0-100%)
+        self.button_combined_accuracies = []  # List of combined (press+release)/2 accuracies
         self.button_press_window_mm = 200.0  # Window size in mm (±200mm from optimal position)
         self.button_press_perfect_zone_mm = 80.0  # "Perfect" zone around optimal (±80mm = 100% accuracy)
+        
+        # Button state tracking for press-hold-release mechanism
+        self.button_currently_held = False  # True when button is currently held down
+        self.button_press_position_mm = None  # Position where button was pressed
+        self.button_press_accuracy_temp = None  # Temporary storage for press accuracy until release
 
         # for calibration
         self.front_max_pos = 520  # fake data equal 100
@@ -1327,9 +1334,9 @@ class SharedStats:
         # Total distance (already calculated)
         total_distance = self.total_distance
         
-        # Average accuracy - use button press accuracies in manual mode
-        if not self.is_automatic_mode and self.button_press_accuracies:
-            avg_accuracy = sum(self.button_press_accuracies) / len(self.button_press_accuracies)
+        # Average accuracy - use combined (press+release) accuracies in manual mode
+        if not self.is_automatic_mode and self.button_combined_accuracies:
+            avg_accuracy = sum(self.button_combined_accuracies) / len(self.button_combined_accuracies)
         else:
             total_attempts = self.score + self.misses
             if total_attempts > 0:
@@ -1900,20 +1907,18 @@ class GamePage(wx.Panel):
         self.Bind(wx.EVT_TIMER, self.on_timer, self.timer)
         self.timer.Start(100)
         
-        # Setup button press detection (spacebar + game controller)
-        # Keyboard detection
-        self.button_press_id = wx.NewIdRef()
-        self.Bind(wx.EVT_MENU, self.on_button_press, id=self.button_press_id)
-        
+        # Setup button press/release detection (spacebar + game controller)
+        # Keyboard detection - use EVT_KEY_DOWN and EVT_KEY_UP for press and release
         parent_frame = self.GetTopLevelParent()
         if parent_frame:
-            accel_tbl = wx.AcceleratorTable([(wx.ACCEL_NORMAL, wx.WXK_SPACE, self.button_press_id)])
-            parent_frame.SetAcceleratorTable(accel_tbl)
-            parent_frame.Bind(wx.EVT_CHAR_HOOK, self.on_char_hook)
+            parent_frame.Bind(wx.EVT_KEY_DOWN, self.on_key_down)
+            parent_frame.Bind(wx.EVT_KEY_UP, self.on_key_up)
         
-        self.Bind(wx.EVT_CHAR_HOOK, self.on_char_hook)
+        self.Bind(wx.EVT_KEY_DOWN, self.on_key_down)
+        self.Bind(wx.EVT_KEY_UP, self.on_key_up)
         
         self.last_button_press_time = 0  # Debounce tracking
+        self.spacebar_currently_pressed = False  # Track spacebar state
         
         # Game controller detection and setup
         self.controller = None
@@ -1941,11 +1946,11 @@ class GamePage(wx.Panel):
         self.fes_indicator_panel.update_indicator()
     
     def reset_game(self):
-        # Re-setup button press detection
+        # Re-setup button press/release detection
         parent_frame = self.GetTopLevelParent()
-        if parent_frame and hasattr(self, 'button_press_id'):
-            accel_tbl = wx.AcceleratorTable([(wx.ACCEL_NORMAL, wx.WXK_SPACE, self.button_press_id)])
-            parent_frame.SetAcceleratorTable(accel_tbl)
+        if parent_frame:
+            parent_frame.Bind(wx.EVT_KEY_DOWN, self.on_key_down)
+            parent_frame.Bind(wx.EVT_KEY_UP, self.on_key_up)
         
         # Detect and set mode when game page is activated (only if not already set)
         if self.shared_state.current_mode is None:
@@ -2030,7 +2035,7 @@ class GamePage(wx.Panel):
             self.controller = None
     
     def poll_controller(self, event):
-        """Poll game controller for button presses"""
+        """Poll game controller for button presses and releases"""
         if not self.controller:
             return
         
@@ -2048,6 +2053,10 @@ class GamePage(wx.Panel):
                 if button_pressed and not was_pressed:
                     print(f"Controller button {button_id} pressed")
                     self.process_button_press()
+                # Detect button release (transition from pressed to not pressed)
+                elif not button_pressed and was_pressed:
+                    print(f"Controller button {button_id} released")
+                    self.process_button_release()
                 
                 # Update state
                 self.controller_last_button_state[button_id] = button_pressed
@@ -2055,24 +2064,39 @@ class GamePage(wx.Panel):
         except Exception as e:
             print(f"Error polling controller: {e}")
     
-    def on_char_hook(self, event):
-        """Catch keyboard events at high priority"""
+    def on_key_down(self, event):
+        """Handle key down events - detect button press"""
         keycode = event.GetKeyCode()
+        
         if keycode == wx.WXK_SPACE:
-            self.process_button_press()
+            # Spacebar pressed down
+            if not self.spacebar_currently_pressed:
+                self.spacebar_currently_pressed = True
+                self.process_button_press()
             return  # Don't propagate
         event.Skip()  # Let other keys through
     
-    def on_button_press(self, event):
-        """Handle button press from accelerator table"""
-        self.process_button_press()
+    def on_key_up(self, event):
+        """Handle key up events - detect button release"""
+        keycode = event.GetKeyCode()
+        
+        if keycode == wx.WXK_SPACE:
+            # Spacebar released
+            if self.spacebar_currently_pressed:
+                self.spacebar_currently_pressed = False
+                self.process_button_release()
+            return  # Don't propagate
+        event.Skip()  # Let other keys through
+    
     
     def process_button_press(self):
-        """Process button press for accuracy tracking"""
-        self.button_press_count += 1
-        
+        """Process button press (when button is initially pressed down) for press accuracy tracking"""
         # Only process in manual mode
         if self.shared_state.is_automatic_mode:
+            return
+        
+        # Ignore if button is already held (prevent repeat triggers)
+        if self.shared_state.button_currently_held:
             return
         
         # Debounce: ignore if pressed within last 200ms
@@ -2080,6 +2104,10 @@ class GamePage(wx.Panel):
         if current_time - self.last_button_press_time < 0.2:
             return
         self.last_button_press_time = current_time
+        
+        # Mark button as held
+        self.shared_state.button_currently_held = True
+        self.button_press_count += 1
         
         # Get current seat position (prefer mm if available)
         if self.shared_state.seat_position_mm and len(self.shared_state.seat_position_mm) > 0:
@@ -2089,20 +2117,23 @@ class GamePage(wx.Panel):
         else:
             return
         
-        # Optimal position is seat_position_press (rightmost - where PRESS zone is)
+        # Store the position where button was pressed
+        self.shared_state.button_press_position_mm = current_pos_mm
+        
+        # Optimal position is seat_position_press (rightmost - where PRESS/green zone is)
         if hasattr(self.shared_state, 'seat_position_press') and self.shared_state.seat_position_press is not None:
             optimal_pos = self.shared_state.seat_position_press
         else:
             return
         
-        # Calculate accuracy: Lenient with sweet spot zone, 0% beyond 200mm
+        # Calculate PRESS accuracy: Lenient with sweet spot zone, 0% beyond 200mm
         distance = abs(current_pos_mm - optimal_pos)
         perfect_zone = self.shared_state.button_press_perfect_zone_mm
         window = self.shared_state.button_press_window_mm
         
         if distance <= perfect_zone:
             # Within perfect zone - always 100%
-            accuracy = 100.0
+            press_accuracy = 100.0
         elif distance <= window:
             # Outside perfect zone but within window - gentle cubic root decay
             excess_distance = distance - perfect_zone
@@ -2110,18 +2141,91 @@ class GamePage(wx.Panel):
             normalized_distance = excess_distance / remaining_window  # 0 to 1
             # Cubic root for very gentle curve from 100% down to 0%
             decay_factor = 1.0 - (normalized_distance ** 0.33)  # Cubic root
-            accuracy = 100.0 * decay_factor
-            accuracy = max(0.0, min(100.0, accuracy))
+            press_accuracy = 100.0 * decay_factor
+            press_accuracy = max(0.0, min(100.0, press_accuracy))
         else:
             # Outside window - no credit
-            accuracy = 0.0
+            press_accuracy = 0.0
         
-        # Store accuracy
-        self.shared_state.button_press_accuracies.append(accuracy)
+        # Store press accuracy temporarily (will be combined with release accuracy later)
+        self.shared_state.button_press_accuracy_temp = press_accuracy
+        self.shared_state.button_press_accuracies.append(press_accuracy)
+        
+        # Output
+        print(f"Button PRESS #{self.button_press_count}: press_accuracy={press_accuracy:.1f}% (pos={current_pos_mm:.1f}mm, target={optimal_pos:.1f}mm) [HOLDING...]")
+    
+    def process_button_release(self):
+        """Process button release (when button is let go) for release accuracy tracking"""
+        # Only process in manual mode
+        if self.shared_state.is_automatic_mode:
+            return
+        
+        # Only process if button was actually held
+        if not self.shared_state.button_currently_held:
+            return
+        
+        # Mark button as no longer held
+        self.shared_state.button_currently_held = False
+        
+        # Get current seat position (prefer mm if available)
+        if self.shared_state.seat_position_mm and len(self.shared_state.seat_position_mm) > 0:
+            current_pos_mm = self.shared_state.seat_position_mm[-1]
+        elif self.shared_state.raw_seat_pos and len(self.shared_state.raw_seat_pos) > 0:
+            current_pos_mm = self.shared_state.raw_seat_pos[-1]
+        else:
+            return
+        
+        # Optimal position is seat_position_release (leftmost - where RELEASE/orange zone is)
+        if hasattr(self.shared_state, 'seat_position_release') and self.shared_state.seat_position_release is not None:
+            optimal_pos = self.shared_state.seat_position_release
+        else:
+            return
+        
+        # Calculate RELEASE accuracy: Same gradient approach as press
+        distance = abs(current_pos_mm - optimal_pos)
+        perfect_zone = self.shared_state.button_press_perfect_zone_mm
+        window = self.shared_state.button_press_window_mm
+        
+        if distance <= perfect_zone:
+            # Within perfect zone - always 100%
+            release_accuracy = 100.0
+        elif distance <= window:
+            # Outside perfect zone but within window - gentle cubic root decay
+            excess_distance = distance - perfect_zone
+            remaining_window = window - perfect_zone
+            normalized_distance = excess_distance / remaining_window  # 0 to 1
+            # Cubic root for very gentle curve from 100% down to 0%
+            decay_factor = 1.0 - (normalized_distance ** 0.33)  # Cubic root
+            release_accuracy = 100.0 * decay_factor
+            release_accuracy = max(0.0, min(100.0, release_accuracy))
+        else:
+            # Outside window - no credit
+            release_accuracy = 0.0
+        
+        # Store release accuracy
+        self.shared_state.button_release_accuracies.append(release_accuracy)
+        
+        # Calculate combined accuracy (average of press and release)
+        if self.shared_state.button_press_accuracy_temp is not None:
+            combined_accuracy = (self.shared_state.button_press_accuracy_temp + release_accuracy) / 2.0
+        else:
+            # Fallback if press accuracy wasn't stored (shouldn't happen)
+            combined_accuracy = release_accuracy
+        
+        # Store combined accuracy
+        self.shared_state.button_combined_accuracies.append(combined_accuracy)
         self.shared_state.button_press_seat_pos.append(current_pos_mm)
         
-        # Simple output
-        print(f"Button #{self.button_press_count}: accuracy={accuracy:.1f}% (pos={current_pos_mm:.1f}mm, target={optimal_pos:.1f}mm)")
+        # Get press position for output
+        press_pos = self.shared_state.button_press_position_mm if self.shared_state.button_press_position_mm is not None else "N/A"
+        
+        # Output
+        print(f"Button RELEASE #{self.button_press_count}: release_accuracy={release_accuracy:.1f}% (pos={current_pos_mm:.1f}mm, target={optimal_pos:.1f}mm)")
+        print(f"  → COMBINED accuracy={combined_accuracy:.1f}% (press={self.shared_state.button_press_accuracy_temp:.1f}%, release={release_accuracy:.1f}%)")
+        
+        # Reset temporary storage
+        self.shared_state.button_press_accuracy_temp = None
+        self.shared_state.button_press_position_mm = None
     
     def on_back_button(self, event):
         self.shared_state.stop_writing_stats()
@@ -2232,12 +2336,12 @@ class ModernStatsDisplay(wx.Panel):
 
         # Update accuracy based on mode
         if not self.shared_state.is_automatic_mode:
-            # MANUAL MODE: accuracy from button press timing
-            if self.shared_state.button_press_accuracies:
-                # Average all button press accuracies
-                accuracy = sum(self.shared_state.button_press_accuracies) / len(self.shared_state.button_press_accuracies)
+            # MANUAL MODE: accuracy from button press-hold-release timing (combined accuracy)
+            if self.shared_state.button_combined_accuracies:
+                # Average all combined (press + release) accuracies
+                accuracy = sum(self.shared_state.button_combined_accuracies) / len(self.shared_state.button_combined_accuracies)
             else:
-                # No button presses yet - start at 0%
+                # No completed press-release cycles yet - start at 0%
                 accuracy = 0.0
             accuracy_str = f"{int(accuracy)}%"
         else:
@@ -2251,9 +2355,9 @@ class ModernStatsDisplay(wx.Panel):
         
         self.accuracy_value_label.SetLabel(accuracy_str)
 
-        # Update accuracy label color based on percentage (only if we have button presses)
-        has_button_presses = len(self.shared_state.button_press_accuracies) > 0
-        if has_button_presses:
+        # Update accuracy label color based on percentage (only if we have completed cycles)
+        has_completed_cycles = len(self.shared_state.button_combined_accuracies) > 0
+        if has_completed_cycles:
             if accuracy >= 90:
                 self.accuracy_value_label.SetForegroundColour(wx.Colour(76, 175, 80))  # Green
             elif accuracy >= 70:
@@ -2285,9 +2389,14 @@ class ModernStatsDisplay(wx.Panel):
         self.shared_state.R_foot_force = []
         self.shared_state.switch_press = []
         
-        # Reset button press accuracy tracking
+        # Reset button press-hold-release accuracy tracking
         self.shared_state.button_press_accuracies = []
+        self.shared_state.button_release_accuracies = []
+        self.shared_state.button_combined_accuracies = []
         self.shared_state.button_press_seat_pos = []
+        self.shared_state.button_currently_held = False
+        self.shared_state.button_press_position_mm = None
+        self.shared_state.button_press_accuracy_temp = None
 
         # Reset display
         self.time_value_label.SetLabel("00:00:00")
@@ -2309,12 +2418,12 @@ class LocationProgressPanel(wx.Panel):
         # Location milestones (distance in meters to reach each location)
         self.location_milestones = [
             ("Hawaii", 0),
-            ("Antarctica", 10),
-            ("Amazon", 20),
-            ("Japan", 30),
-            ("Australia", 40),
+            ("Antarctica", 20),
+            ("Amazon", 40),
+            ("Japan", 60),
+            ("Australia", 80),
         ]
-        self.location_interval = 10.0
+        self.location_interval = 20.0
         self.cycle_distance = self.location_interval * len(self.location_milestones)
         
         # Create main sizer
@@ -2531,15 +2640,15 @@ class RowingScenePanel(wx.Panel):
         self.current_location = "Hawaii"
         
         # Location milestones (distance in meters to reach each location) - matches dashboard
-        # These loop every 10m increments per location (total 50m per loop)
+        # These loop every 20m increments per location (total 100m per loop)
         self.location_milestones = [
             ("Hawaii", 0),
-            ("Antarctica", 10),
-            ("Amazon", 20),
-            ("Japan", 30),
-            ("Australia", 40),
+            ("Antarctica", 20),
+            ("Amazon", 40),
+            ("Japan", 60),
+            ("Australia", 80),
         ]
-        self.location_interval = 10.0
+        self.location_interval = 20.0
         self.cycle_distance = self.location_interval * len(self.location_milestones)
         
         # Predefined iceberg shapes to cycle through (no randomness)

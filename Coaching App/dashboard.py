@@ -15,7 +15,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 
 # Configuration: Set to False to skip login and use demo account automatically
-REQUIRE_LOGIN = False
+REQUIRE_LOGIN = True
 
 class AccountManager:
     """Manages user accounts and authentication"""
@@ -1158,10 +1158,10 @@ class MapCard(wx.Panel):
         # Location milestones (distance in meters to reach each location) - matching game_page.py
         self.location_milestones = [
             ("Hawaii", 0),
-            ("Antarctica", 10),
-            ("Amazon", 20),
-            ("Japan", 30),
-            ("Australia", 40),
+            ("Antarctica", 20),
+            ("Amazon", 40),
+            ("Japan", 60),
+            ("Australia", 80),
         ]
         
         # Store references to location widgets for dynamic updates
