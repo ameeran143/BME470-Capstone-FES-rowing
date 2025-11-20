@@ -230,7 +230,7 @@ class SharedStats:
         
         # Mode control: "hardware", "csv_playback", or None
         self.current_mode = None  # Will be determined by detect_mode()
-        self.mode_override = "csv_playback"  # Force CSV playback mode (uses hikaru data)
+        self.mode_override = "hardware"  # Force CSV playback mode (uses hikaru data)
         
         # CSV playback mode (replay data from sensor CSV files)
         self.anc_playback_mode = False

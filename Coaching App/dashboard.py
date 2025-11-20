@@ -1489,6 +1489,10 @@ class DashboardPage(wx.Panel):
         if not self.is_logged_in or not self.current_username:
             return
         
+        # CRITICAL: Reload accounts from file to ensure we have the latest data (including newly created accounts)
+        # This fixes the issue where new accounts created by LoginPage aren't visible to DashboardPage
+        self.account_manager.accounts = self.account_manager.load_accounts()
+        
         # Update SharedStats with the current username (in case it changed)
         parent = self.GetParent()
         if hasattr(parent, 'shared_state') and hasattr(parent.shared_state, 'set_user_name'):

@@ -291,6 +291,8 @@ class CalibPage(wx.Panel):
                     # Zero-shift both front and back positions by subtracting the back_max_pos (mean of back positions)
                     # This ensures back_max_pos becomes 0 after zero-shifting
                     zero_shift_reference = self.shared_state.back_max_pos
+                    # Store raw back position before zero-shifting (needed for gameplay zero-shifting)
+                    self.shared_state.back_max_pos_raw = zero_shift_reference
                     self.shared_state.front_max_pos = self.shared_state.front_max_pos - zero_shift_reference
                     self.shared_state.back_max_pos = self.shared_state.back_max_pos - zero_shift_reference
                     print(f"Zero-shifted front position: {self.shared_state.front_max_pos:.2f} mm")
@@ -374,10 +376,11 @@ class CalibPage(wx.Panel):
             
             calib_file = os.path.join(calib_dir, filename)
             
-            # Prepare calibration data (only calibration values, zero-shifted positions)
+            # Prepare calibration data (zero-shifted positions + raw back position for zero-shifting during gameplay)
             calib_data = {
                 "front_max_pos": self.shared_state.front_max_pos,
                 "back_max_pos": self.shared_state.back_max_pos,
+                "back_max_pos_raw": getattr(self.shared_state, 'back_max_pos_raw', self.shared_state.back_max_pos),
                 "timestamp": time.strftime('%Y-%m-%d %H:%M:%S')
             }
             
