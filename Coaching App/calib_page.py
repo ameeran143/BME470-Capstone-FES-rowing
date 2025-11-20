@@ -1,5 +1,5 @@
 import wx
-from button import CustomButton
+from game_page import ModernCard
 from PIL import Image
 import os
 import json
@@ -40,16 +40,18 @@ class CalibPage(wx.Panel):
         self.calib_seat_positions = []  # Store seat positions during calibration
         self.all_calib_positions = []  # Store all positions (front + back) for zero-shifting
 
-        # Visual style
+        # Visual style - matching app aesthetic
         self.bg_color = wx.Colour(248, 249, 250)
-        self.label_color = wx.Colour(64, 64, 64)
+        self.text_color = wx.Colour(33, 37, 41)  # Main text color matching app
+        self.secondary_text_color = wx.Colour(128, 128, 128)  # Secondary text color
         self.SetBackgroundColour(self.bg_color)
 
         # Layout
         self.main_sizer = wx.BoxSizer(wx.VERTICAL)
 
-        # Begin calibration button (enabled from the start)
-        self.begin_button = CustomButton(self, label="\nBegin Calibration\n", size=(360, 60), font=30, handler=self.on_begin)
+        # Begin calibration button (enabled from the start) - matching app aesthetic
+        self.begin_button = ModernCard(self, "Begin Calibration →", self.on_begin, enabled=True, font_size=24)
+        self.begin_button.SetMinSize((360, 70))
         self.main_sizer.Add(self.begin_button, 0, wx.ALIGN_CENTER | wx.ALL, 20)
 
         # Instructions and images in a vertical sizer so we can compute their bounding boxes
@@ -57,7 +59,7 @@ class CalibPage(wx.Panel):
 
         self.instr1_label = wx.StaticText(self, label="Compress your legs to the best of your abilities, with your feet remaining flat")
         self.instr1_label.SetFont(wx.Font(18, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
-        self.instr1_label.SetForegroundColour(self.label_color)
+        self.instr1_label.SetForegroundColour(self.text_color)
         self.instr_sizer.Add(self.instr1_label, 0, wx.ALIGN_CENTER | wx.ALL, 12)
 
         # compress image
@@ -84,14 +86,14 @@ class CalibPage(wx.Panel):
             pass
         self.instr_sizer.Add(self.phase_gauge_front, 0, wx.ALIGN_CENTER | wx.ALL, 8)
         self.phase_label_front = wx.StaticText(self, label="Front: 5s transitioning + 5s collect")
-        self.phase_label_front.SetForegroundColour(self.label_color)
-        self.phase_label_front.SetFont(wx.Font(15, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        self.phase_label_front.SetForegroundColour(self.secondary_text_color)
+        self.phase_label_front.SetFont(wx.Font(14, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         self.instr_sizer.Add(self.phase_label_front, 0, wx.ALIGN_CENTER | wx.BOTTOM, 6)
 
         # second instruction
         self.instr2_label = wx.StaticText(self, label="Extend your legs to the best of your abilities, with your feet remaining flat")
         self.instr2_label.SetFont(wx.Font(18, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
-        self.instr2_label.SetForegroundColour(self.label_color)
+        self.instr2_label.SetForegroundColour(self.text_color)
         self.instr_sizer.Add(self.instr2_label, 0, wx.ALIGN_CENTER | wx.ALL, 12)
 
         self.img2_ctrl = None
@@ -113,8 +115,8 @@ class CalibPage(wx.Panel):
                 pass
             self.instr_sizer.Add(self.phase_gauge_back, 0, wx.ALIGN_CENTER | wx.ALL, 8)
             self.phase_label_back = wx.StaticText(self, label="Back: 5s transitioning + 5s collect")
-            self.phase_label_back.SetForegroundColour(self.label_color)
-            self.phase_label_back.SetFont(wx.Font(15, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+            self.phase_label_back.SetForegroundColour(self.secondary_text_color)
+            self.phase_label_back.SetFont(wx.Font(14, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
             self.instr_sizer.Add(self.phase_label_back, 0, wx.ALIGN_CENTER | wx.BOTTOM, 6)
         else:
             # spacer if missing
@@ -122,8 +124,9 @@ class CalibPage(wx.Panel):
 
         self.main_sizer.Add(self.instr_sizer, 0, wx.ALIGN_CENTER | wx.ALL, 5)
 
-        # back button
-        self.back_button = CustomButton(self, label="\nBack\n", size=(120, 60), font=30, handler=self.on_back)
+        # back button - matching app aesthetic
+        self.back_button = ModernCard(self, "← Back", self.on_back, enabled=True, font_size=24)
+        self.back_button.SetMinSize((170, 70))
         self.main_sizer.Add(self.back_button, 0, wx.ALIGN_RIGHT | wx.ALL, 10)
 
         self.SetSizer(self.main_sizer)
@@ -148,7 +151,7 @@ class CalibPage(wx.Panel):
             self.phase_gauge_front = wx.Gauge(self, range=100, size=(420, 24))
             self.phase_gauge_front.SetValue(0)
             self.phase_label_front = wx.StaticText(self, label="Front: 5s transitioning + 5s collect")
-            self.phase_label_front.SetForegroundColour(self.label_color)
+            self.phase_label_front.SetForegroundColour(self.secondary_text_color)
             try:
                 self.phase_gauge_front.SetBackgroundColour(wx.Colour(240, 240, 240))
                 self.phase_gauge_front.SetForegroundColour(wx.Colour(60, 180, 75))
@@ -158,7 +161,7 @@ class CalibPage(wx.Panel):
             self.phase_gauge_back = wx.Gauge(self, range=100, size=(420, 24))
             self.phase_gauge_back.SetValue(0)
             self.phase_label_back = wx.StaticText(self, label="Back: 5s transitioning + 5s collect")
-            self.phase_label_back.SetForegroundColour(self.label_color)
+            self.phase_label_back.SetForegroundColour(self.secondary_text_color)
             try:
                 self.phase_gauge_back.SetBackgroundColour(wx.Colour(240, 240, 240))
                 self.phase_gauge_back.SetForegroundColour(wx.Colour(60, 180, 75))

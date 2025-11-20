@@ -809,15 +809,15 @@ class StatisticsCard(wx.Panel):
             
             if len(date_objects) > 0:
                 # Group sessions by date
-                # For time: sum values, for others: average values
+                # For time and distance: sum values, for others: average values
                 date_value_dict = {}
                 date_count_dict = {}
                 
                 for date_obj, value in zip(date_objects, values):
                     date_key = date_obj.date()
                     if date_key in date_value_dict:
-                        if metric_key == 'time_minutes':
-                            # Sum times for same date
+                        if metric_key == 'time_minutes' or metric_key == 'distance':
+                            # Sum times and distances for same date
                             date_value_dict[date_key] += value
                         else:
                             # Average other metrics for same date
@@ -825,11 +825,11 @@ class StatisticsCard(wx.Panel):
                             date_count_dict[date_key] += 1
                     else:
                         date_value_dict[date_key] = value
-                        if metric_key != 'time_minutes':
+                        if metric_key != 'time_minutes' and metric_key != 'distance':
                             date_count_dict[date_key] = 1
                 
-                # Calculate averages for non-time metrics
-                if metric_key != 'time_minutes':
+                # Calculate averages for non-time, non-distance metrics
+                if metric_key != 'time_minutes' and metric_key != 'distance':
                     for date_key in date_value_dict:
                         if date_key in date_count_dict and date_count_dict[date_key] > 0:
                             date_value_dict[date_key] = date_value_dict[date_key] / date_count_dict[date_key]

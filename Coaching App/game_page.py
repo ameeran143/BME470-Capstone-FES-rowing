@@ -121,6 +121,31 @@ class ModernCard(wx.Panel):
     def OnClick(self, event):
         if self.enabled and self.handler:
             self.handler(event)
+    
+    def Enable(self, enable=True):
+        """Enable or disable the button"""
+        self.enabled = enable
+        if enable:
+            self.bg_color = wx.Colour(255, 255, 255)
+            self.text_color = wx.Colour(33, 37, 41)
+            if self.handler:
+                self.Bind(wx.EVT_LEFT_DOWN, self.OnClick)
+                self.Bind(wx.EVT_ENTER_WINDOW, self.OnEnter)
+                self.Bind(wx.EVT_LEAVE_WINDOW, self.OnLeave)
+                self.SetCursor(wx.Cursor(wx.CURSOR_HAND))
+        else:
+            self.bg_color = wx.Colour(230, 230, 230)
+            self.text_color = wx.Colour(150, 150, 150)
+            self.Unbind(wx.EVT_LEFT_DOWN)
+            self.Unbind(wx.EVT_ENTER_WINDOW)
+            self.Unbind(wx.EVT_LEAVE_WINDOW)
+            self.SetCursor(wx.Cursor(wx.CURSOR_ARROW))
+        self.SetBackgroundColour(self.bg_color)
+        self.Refresh()
+    
+    def Disable(self):
+        """Disable the button"""
+        self.Enable(False)
 
 class SharedStats:
     def __init__(self):
