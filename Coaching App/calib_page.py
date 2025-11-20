@@ -51,7 +51,7 @@ class CalibPage(wx.Panel):
 
         # Begin calibration button (enabled from the start) - matching app aesthetic
         self.begin_button = ModernCard(self, "Begin Calibration →", self.on_begin, enabled=True, font_size=24)
-        self.begin_button.SetMinSize((360, 70))
+        self.begin_button.SetMinSize((328, 70))
         self.main_sizer.Add(self.begin_button, 0, wx.ALIGN_CENTER | wx.ALL, 20)
 
         # Instructions and images in a vertical sizer so we can compute their bounding boxes
@@ -126,7 +126,7 @@ class CalibPage(wx.Panel):
 
         # back button - matching app aesthetic
         self.back_button = ModernCard(self, "← Back", self.on_back, enabled=True, font_size=24)
-        self.back_button.SetMinSize((170, 70))
+        self.back_button.SetMinSize((180, 70))
         self.main_sizer.Add(self.back_button, 0, wx.ALIGN_RIGHT | wx.ALL, 10)
 
         self.SetSizer(self.main_sizer)

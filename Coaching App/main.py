@@ -27,13 +27,8 @@ class MainFrame(wx.Frame):
 
         self.shared_state = SharedStats()
 
-        display = wx.Display()
-        screen_geometry = display.GetGeometry()
-        screen_width, screen_height = screen_geometry.width, screen_geometry.height
-        frame_width = int(screen_width * 0.95)
-        frame_height = int(screen_height * 0.95)
-        self.SetSize(frame_width, frame_height)
-        self.Centre()
+        # Maximize the window to fullscreen automatically
+        self.Maximize(True)
         
         self.sizer = wx.BoxSizer(wx.VERTICAL)
         self.dashboard_page = DashboardPage(self)

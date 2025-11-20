@@ -158,14 +158,14 @@ class InstructionsPage(wx.Panel):
 
         section_sizer.Add(self.create_section(
             scroll,
-            "🎯  Manual Mode",
+            "🎯  Manual Modee",
             "Practice controlling your seat timing manually.\n"
             "Watch the orange–green bar and press during the green zone!"
         ), 0, wx.EXPAND | wx.ALL, 15)
 
         section_sizer.Add(self.create_section(
             scroll,
-            "🤖  Automatic Mode",
+            "🤖  Automatic Modee",
             "The system automatically triggers FES stimulation when your seat\n"
             "reaches the calibrated positions."
         ), 0, wx.EXPAND | wx.ALL, 15)

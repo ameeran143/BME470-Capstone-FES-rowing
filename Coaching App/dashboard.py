@@ -747,13 +747,13 @@ class StatisticsCard(wx.Panel):
         
         main_sizer.Add(title_row, 0, wx.EXPAND | wx.TOP, 30)
         
-        # Add minimal spacing
-        main_sizer.AddSpacer(5)
+        # Negative spacer to move graph up another 10 pixels
+        main_sizer.AddSpacer(-10)
         
-        # Create matplotlib figure and canvas with better sizing
+        # Create matplotlib figure and canvas with better sizing (moved up 30 pixels total)
         self.figure = Figure(figsize=(4.5, 2.0), dpi=80, facecolor='white')
         self.canvas = FigureCanvas(self, -1, self.figure)
-        main_sizer.Add(self.canvas, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP | wx.BOTTOM, 15)
+        main_sizer.Add(self.canvas, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 15)
         
         self.SetSizer(main_sizer)
         

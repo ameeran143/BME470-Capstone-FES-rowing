@@ -125,7 +125,7 @@ class GameTutorialPage(wx.Panel):
         self.content_area.SetSizer(self.content_sizer)
 
         # Use proportion 0 so content area fits to its content, not expanding vertically
-        self.main_sizer.Add(self.content_area, 0, wx.EXPAND | wx.ALL, 20)
+        self.main_sizer.Add(self.content_area, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 20)
 
         # --- Explanation text ---
         # Create a container for the text labels
@@ -138,10 +138,7 @@ class GameTutorialPage(wx.Panel):
         self.text_label.SetFont(wx.Font(26, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         self.text_sizer.Add(self.text_label, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 0)
         
-        self.main_sizer.Add(self.text_container, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
-
-        # Add stretch spacer to push buttons to bottom
-        self.main_sizer.AddStretchSpacer()
+        self.main_sizer.Add(self.text_container, 0, wx.LEFT | wx.RIGHT, 20)
 
         # --- Navigation buttons ---
         nav = wx.BoxSizer(wx.HORIZONTAL)
@@ -181,13 +178,14 @@ class GameTutorialPage(wx.Panel):
         self.clear_content()
 
         if self.step == 0:
+            # No stretch spacer for step 0 - content should fit on one page
             self.show_metrics_step()
             # Clear any existing labels in text container
             for child in self.text_container.GetChildren():
                 if isinstance(child, wx.StaticText):
                     child.Destroy()
             self.text_label = wx.StaticText(self.text_container, label="", style=wx.ALIGN_LEFT)
-            self.text_label.SetFont(wx.Font(26, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+            self.text_label.SetFont(wx.Font(24, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
             self.text_label.SetForegroundColour(wx.Colour(33, 37, 41))  # Default text color
             self.text_sizer.Add(self.text_label, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 0)
             self.text_label.SetLabel(
@@ -195,7 +193,7 @@ class GameTutorialPage(wx.Panel):
                 "- Time\n- Power\n- Distance\n- Timing accuracy"
             )
             self.next_btn.SetLabel("Next →")
-            self.back_btn.Disable()
+            self.back_btn.Enable()
 
         elif self.step == 1:
             self.show_game_step()
@@ -208,7 +206,7 @@ class GameTutorialPage(wx.Panel):
             self.text_label.SetForegroundColour(wx.Colour(33, 37, 41))  # Default text color
             self.text_sizer.Add(self.text_label, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 0)
             self.text_label.SetLabel(
-                "This is the game screen.\nYour avatar rows as your power increases."
+                "This is the game screen.\nYour avatar rows as your distance increases."
             )
             self.next_btn.SetLabel("Next →")
             self.back_btn.Enable()
@@ -240,10 +238,10 @@ class GameTutorialPage(wx.Panel):
             ("Accuracy", "83%")
         ]:
             card = self.create_metric_card(panel, title, value)
-            row.Add(card, 1, wx.ALL, 10)
+            row.Add(card, 1, wx.ALL, 8)  # Reduced from 10 to 8
 
         panel.SetSizer(row)
-        self.content_sizer.Add(panel, 0, wx.EXPAND | wx.ALL, 10)
+        self.content_sizer.Add(panel, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 10)  # Removed bottom padding
 
     def create_metric_card(self, parent, title, value):
         p = wx.Panel(parent)
@@ -251,12 +249,12 @@ class GameTutorialPage(wx.Panel):
 
         s = wx.BoxSizer(wx.VERTICAL)
         t = wx.StaticText(p, label=title)
-        t.SetFont(wx.Font(22, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        t.SetFont(wx.Font(20, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))  # Reduced from 22
         v = wx.StaticText(p, label=value)
-        v.SetFont(wx.Font(38, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        v.SetFont(wx.Font(34, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))  # Reduced from 38
 
-        s.Add(t, 0, wx.ALIGN_CENTER | wx.TOP, 5)
-        s.Add(v, 1, wx.ALIGN_CENTER | wx.BOTTOM, 5)
+        s.Add(t, 0, wx.ALIGN_CENTER | wx.TOP, 3)  # Reduced from 5
+        s.Add(v, 1, wx.ALIGN_CENTER | wx.BOTTOM, 3)  # Reduced from 5
         p.SetSizer(s)
         return p
 
@@ -506,8 +504,12 @@ class GameTutorialPage(wx.Panel):
         self.show_step()
 
     def on_prev(self, event):
-        self.step -= 1
-        self.show_step()
+        if self.step == 0:
+            # Go back to instructions page if on first step
+            self.GetParent().switch_to_instructions_page()
+        else:
+            self.step -= 1
+            self.show_step()
 
 class TutorialPingPongFES(wx.Panel):
     def __init__(self, parent, callback=None):
@@ -615,7 +617,7 @@ class TutorialPingPongFES(wx.Panel):
         bar_y = h // 2 - 25
         bar_height = 50
         padding = 60
-        end_width = 80
+        end_width = 100  # Increased from 80 to 100 (20 pixels wider)
 
         track_w = w - (2*padding) - (2*end_width)
         track_x = padding + end_width
@@ -653,8 +655,17 @@ class TutorialPingPongFES(wx.Panel):
         # Use DC for text rendering (more reliable than GraphicsContext text)
         dc.SetTextForeground(wx.Colour(255, 255, 255))
         dc.SetFont(wx.Font(15, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
-        dc.DrawText("RELEASE", padding , bar_y + 13)
-        dc.DrawText("PRESS", padding + end_width + track_w + 10, bar_y + 13)
+        # Center text in buttons
+        release_text = "RELEASE"
+        press_text = "PRESS"
+        release_text_width, _ = dc.GetTextExtent(release_text)
+        press_text_width, _ = dc.GetTextExtent(press_text)
+        # Orange button center: padding + end_width/2
+        release_x = padding + (end_width - release_text_width) // 2
+        # Green button center: padding + end_width + track_w + end_width/2
+        press_x = padding + end_width + track_w + (end_width - press_text_width) // 2
+        dc.DrawText(release_text, release_x, bar_y + 13)
+        dc.DrawText(press_text, press_x, bar_y + 13)
 
 '''
     def on_paint(self, event):
