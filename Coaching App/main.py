@@ -8,6 +8,7 @@ from instructions import InstructionsPage
 from session_summary import SessionSummaryPage
 from dashboard import DashboardPage
 from tutorial import GameTutorialPage
+from title_page import TitlePage, LoginPage
 
 class RowingApp(wx.App):
     def OnInit(self):
@@ -31,6 +32,8 @@ class MainFrame(wx.Frame):
         self.Maximize(True)
         
         self.sizer = wx.BoxSizer(wx.VERTICAL)
+        self.title_page = TitlePage(self)
+        self.login_page = LoginPage(self)
         self.dashboard_page = DashboardPage(self)
         self.start_page = StartPage(self)
         self.calib_page = CalibPage(self, self.shared_state)
@@ -39,6 +42,8 @@ class MainFrame(wx.Frame):
         self.game_tutorial_page = GameTutorialPage(self)
         self.summary_page = None  # Will be created when needed
         
+        self.sizer.Add(self.title_page, 1, wx.EXPAND)
+        self.sizer.Add(self.login_page, 1, wx.EXPAND)
         self.sizer.Add(self.dashboard_page, 1, wx.EXPAND)
         self.sizer.Add(self.start_page, 1, wx.EXPAND)
         self.sizer.Add(self.calib_page, 1, wx.EXPAND)
@@ -46,14 +51,33 @@ class MainFrame(wx.Frame):
         self.sizer.Add(self.instructions_page, 1, wx.EXPAND)
         self.sizer.Add(self.game_tutorial_page, 1, wx.EXPAND)
 
+        self.login_page.Hide()
+        self.dashboard_page.Hide()
         self.start_page.Hide()
         self.calib_page.Hide()
         self.game_page.Hide()
         self.instructions_page.Hide()
         self.game_tutorial_page.Hide()
+        
+        # Show Title Page initially
+        self.title_page.Show()
         self.SetSizer(self.sizer)
         
-        self.current_panel = self.dashboard_page
+        self.current_panel = self.title_page
+
+    def switch_to_title_page(self):
+        self.current_panel.Hide()
+        self.title_page.Show()
+        self.current_panel = self.title_page
+        self.Refresh()
+        self.Layout()
+
+    def switch_to_login_page(self):
+        self.current_panel.Hide()
+        self.login_page.Show()
+        self.current_panel = self.login_page
+        self.Refresh()
+        self.Layout()
 
     def switch_to_calib_page(self):
         self.current_panel.Hide()

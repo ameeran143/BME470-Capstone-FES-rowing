@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 from map_logic import MapLogic
 
 # Configuration: Set to False to skip login and use demo account automatically
-REQUIRE_LOGIN = True
+REQUIRE_LOGIN = False
 
 class AccountManager:
     """Manages user accounts and authentication"""
@@ -774,7 +774,7 @@ class StatisticsCard(wx.Panel):
         self.create_plot()
         
     def create_plot(self):
-        """Create the matplotlib plot showing the selected metric over time"""
+        """Create the matplotlib plot showing the selected metric over sessions"""
         # Clear the figure
         self.figure.clear()
         
@@ -791,90 +791,34 @@ class StatisticsCard(wx.Panel):
         y_values = []  # Initialize to avoid scope issues
         
         if len(sessions) > 0:
-            # Extract dates and metric values
-            date_objects = []
-            values = []
+            # Extract values directly (no date grouping)
+            x_values = []
+            y_values = []
             
-            for session in sessions:
-                # Parse date if available
-                if session.get('date'):
-                    try:
-                        # Parse date string to datetime object
-                        date_obj = datetime.strptime(session['date'], '%Y-%m-%d')
-                        date_objects.append(date_obj)
-                        values.append(session.get(metric_key, 0))
-                    except:
-                        # Skip invalid dates
-                        continue
+            for i, session in enumerate(sessions):
+                x_values.append(i + 1)  # Session # starts at 1
+                y_values.append(session.get(metric_key, 0))
             
-            if len(date_objects) > 0:
-                # Group sessions by date
-                # For time and distance: sum values, for others: average values
-                date_value_dict = {}
-                date_count_dict = {}
-                
-                for date_obj, value in zip(date_objects, values):
-                    date_key = date_obj.date()
-                    if date_key in date_value_dict:
-                        if metric_key == 'time_minutes' or metric_key == 'distance':
-                            # Sum times and distances for same date
-                            date_value_dict[date_key] += value
-                        else:
-                            # Average other metrics for same date
-                            date_value_dict[date_key] += value
-                            date_count_dict[date_key] += 1
-                    else:
-                        date_value_dict[date_key] = value
-                        if metric_key != 'time_minutes' and metric_key != 'distance':
-                            date_count_dict[date_key] = 1
-                
-                # Calculate averages for non-time, non-distance metrics
-                if metric_key != 'time_minutes' and metric_key != 'distance':
-                    for date_key in date_value_dict:
-                        if date_key in date_count_dict and date_count_dict[date_key] > 0:
-                            date_value_dict[date_key] = date_value_dict[date_key] / date_count_dict[date_key]
-                
-                # Sort by date
-                sorted_dates = sorted(date_value_dict.keys())
-                x_dates = [datetime.combine(d, datetime.min.time()) for d in sorted_dates]
-                y_values = [date_value_dict[d] for d in sorted_dates]
-                
+            if y_values:
                 # Plot the line with area fill
-                ax.plot(x_dates, y_values, color='#0066CC', linewidth=2.5, marker='o', markersize=4)
-                ax.fill_between(x_dates, y_values, alpha=0.3, color='#ADD8E6')
+                ax.plot(x_values, y_values, color='#0066CC', linewidth=2.5, marker='o', markersize=4)
+                ax.fill_between(x_values, y_values, alpha=0.3, color='#ADD8E6')
                 
-                # Set x-axis to use dates
-                ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+                # Force integer ticks on x-axis
+                import matplotlib.ticker as ticker
+                ax.xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
                 
-                # For single date, position it on the left side of the plot
-                if len(x_dates) == 1:
-                    # Single date - position on left, leave room for future dates
-                    first_date = x_dates[0]
-                    # Add some padding before the first date (2 days) to create gap from y-axis
-                    # Set x-axis limits: start 2 days before first date, extend 30 days to the right
-                    ax.set_xlim(left=first_date - timedelta(days=2), right=first_date + timedelta(days=30))
-                    # Show only the first date tick
-                    ax.set_xticks([first_date])
+                # Adjust x-axis limits
+                if len(x_values) == 1:
+                    # Single session - position nicely
+                    ax.set_xlim(left=0.5, right=1.5)
+                    ax.set_xticks([1])
                 else:
-                    # Multiple dates - auto-scale
-                    date_min = min(x_dates)
-                    date_max = max(x_dates)
-                    # Add some padding (5% of date range)
-                    date_range = (date_max - date_min).days
-                    padding = timedelta(days=max(1, int(date_range * 0.05)))
-                    ax.set_xlim(left=date_min - padding, right=date_max + padding)
-                    # Auto-format date ticks
-                    if date_range <= 7:
-                        ax.xaxis.set_major_locator(mdates.DayLocator())
-                    elif date_range <= 30:
-                        ax.xaxis.set_major_locator(mdates.WeekdayLocator())
-                    else:
-                        ax.xaxis.set_major_locator(mdates.MonthLocator())
-                
-                # Rotate date labels for better readability
-                plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
+                    # Multiple sessions - simple padding
+                    # Add small padding (0.5) to each side
+                    ax.set_xlim(left=0.5, right=len(x_values) + 0.5)
             else:
-                # No valid dates - show empty plot with message
+                # No valid data - show empty plot with message
                 ax.text(0.5, 0.5, 'No valid session data', 
                        horizontalalignment='center', verticalalignment='center',
                        transform=ax.transAxes, fontsize=14, color='#999999')
@@ -885,7 +829,7 @@ class StatisticsCard(wx.Panel):
                    transform=ax.transAxes, fontsize=14, color='#999999')
         
         # Set labels
-        ax.set_xlabel('Date', fontsize=14, color='#212529', fontweight='normal')
+        ax.set_xlabel('Session #', fontsize=14, color='#212529', fontweight='normal')
         ax.set_ylabel(metric_label, fontsize=14, color='#212529', fontweight='normal')
         
         # Style the plot
@@ -1931,10 +1875,15 @@ class DashboardPage(wx.Panel):
         # Add spacer before button
         main_sizer.AddSpacer(20)
 
-        # Create bottom sizer for "Selection Screen" button in bottom right
+        # Create bottom sizer for buttons
         bottom_sizer = wx.BoxSizer(wx.HORIZONTAL)
         
-        # Add stretch spacer to push button to the right
+        # Add "Logout" button in bottom left - matching User Dashboard button style
+        self.logout_card = ModernCard(self, "← Logout", self.on_logout, enabled=True, font_size=24)
+        self.logout_card.SetMinSize((200, 70))
+        bottom_sizer.Add(self.logout_card, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT | wx.BOTTOM, 30)
+        
+        # Add stretch spacer to push Selection Screen button to the right
         bottom_sizer.AddStretchSpacer()
         
         # Add "Selection Screen" button in bottom right - matching User Dashboard button style
@@ -1986,4 +1935,12 @@ class DashboardPage(wx.Panel):
         """Navigate to selection screen"""
         parent = self.GetParent()
         parent.switch_to_start_page()
+        
+    def on_logout(self, event):
+        """Logout and return to title screen"""
+        parent = self.GetParent()
+        # Reset dashboard state if needed
+        self.is_logged_in = False
+        self.current_username = None
+        parent.switch_to_title_page()
     
