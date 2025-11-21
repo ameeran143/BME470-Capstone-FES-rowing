@@ -275,8 +275,8 @@ class GameTutorialPage(wx.Panel):
         
         # Create two separate labels for each instruction
         try:
-            green_text = wx.StaticText(self.text_container, label="When the indicator is GREEN: Press and hold the FES button.")
-            orange_text = wx.StaticText(self.text_container, label="When the indicator is ORANGE: Release the FES button.")
+            green_text = wx.StaticText(self.text_container, label="Press the button when the bar goes to the far right and hold while the bar is green.")
+            orange_text = wx.StaticText(self.text_container, label="Release the button when the bar goes to the far left and keep released while orange.")
             
             # Set font for both
             font = wx.Font(26, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)

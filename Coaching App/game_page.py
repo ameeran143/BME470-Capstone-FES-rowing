@@ -190,8 +190,8 @@ class SharedStats:
         self.button_press_accuracies = []  # List of press accuracies when button pressed (0-100%)
         self.button_release_accuracies = []  # List of release accuracies when button released (0-100%)
         self.button_combined_accuracies = []  # List of combined (press+release)/2 accuracies
-        self.button_press_window_mm = 200.0  # Window size in mm (±200mm from optimal position)
-        self.button_press_perfect_zone_mm = 80.0  # "Perfect" zone around optimal (±80mm = 100% accuracy)
+        self.button_press_window_mm = 140.0  # Window size in mm (±140mm from optimal position)
+        self.button_press_perfect_zone_mm = 56.0  # "Perfect" zone around optimal (±56mm = 100% accuracy)
         
         # Button state tracking for press-hold-release mechanism
         self.button_currently_held = False  # True when button is currently held down
@@ -230,7 +230,7 @@ class SharedStats:
         
         # Mode control: "hardware", "csv_playback", or None
         self.current_mode = None  # Will be determined by detect_mode()
-        self.mode_override = "hardware"  # Force CSV playback mode (uses hikaru data)
+        self.mode_override = "csv_playback"  # Force CSV playback mode (uses hikaru data)
         
         # CSV playback mode (replay data from sensor CSV files)
         self.anc_playback_mode = False
@@ -3709,13 +3709,19 @@ class ModernFESIndicator(wx.Panel):
         
         # Create sizer with labels
         main_sizer = wx.BoxSizer(wx.VERTICAL)
-        #main_sizer.AddStretchSpacer()  # Top flexible space
+        main_sizer.AddStretchSpacer()  # Top flexible space
         
-        # Title
-        title_label = wx.StaticText(self, label="Button Press Indicator")
-        title_label.SetForegroundColour(wx.Colour(64, 64, 64))
-        title_label.SetFont(wx.Font(36, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
-        main_sizer.Add(title_label, 0, wx.ALIGN_CENTER)
+        # Title - set based on initial mode, centered horizontally
+        title_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        title_sizer.AddStretchSpacer()
+        title_sizer.AddSpacer(60)  # Shift text 60 pixels to the right
+        initial_title = "FES Stimulation" if (hasattr(shared_state, 'is_automatic_mode') and shared_state.is_automatic_mode) else "Button Press Indicator"
+        self.title_label = wx.StaticText(self, label=initial_title)
+        self.title_label.SetForegroundColour(wx.Colour(64, 64, 64))
+        self.title_label.SetFont(wx.Font(36, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        title_sizer.Add(self.title_label, 0, wx.ALIGN_CENTER)
+        title_sizer.AddStretchSpacer()
+        main_sizer.Add(title_sizer, 0, wx.EXPAND)
         main_sizer.AddSpacer(120)
         
         # Labels sizer
@@ -3937,8 +3943,8 @@ class ModernFESIndicator(wx.Panel):
         
         # Determine label text based on mode
         if hasattr(self.shared_state, 'is_automatic_mode') and self.shared_state.is_automatic_mode:
-            left_label = "ACTIVATE"
-            right_label = "ACTIVATE"
+            left_label = "Hamstrings"
+            right_label = "Quads"
         else:
             left_label = "RELEASE"
             right_label = "PRESS"
@@ -3957,6 +3963,11 @@ class ModernFESIndicator(wx.Panel):
         dc.DrawText(right_label, press_x, press_y)
 
     def update_indicator(self):
+        # Update title based on mode
+        if hasattr(self.shared_state, 'is_automatic_mode') and self.shared_state.is_automatic_mode:
+            self.title_label.SetLabel("FES Stimulation")
+        else:
+            self.title_label.SetLabel("Button Press Indicator")
         self.Refresh()
 
     def reset(self):
