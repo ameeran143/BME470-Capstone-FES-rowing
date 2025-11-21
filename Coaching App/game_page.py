@@ -190,8 +190,8 @@ class SharedStats:
         self.button_press_accuracies = []  # List of press accuracies when button pressed (0-100%)
         self.button_release_accuracies = []  # List of release accuracies when button released (0-100%)
         self.button_combined_accuracies = []  # List of combined (press+release)/2 accuracies
-        self.button_press_window_mm = 140.0  # Window size in mm (±140mm from optimal position)
-        self.button_press_perfect_zone_mm = 56.0  # "Perfect" zone around optimal (±56mm = 100% accuracy)
+        self.button_press_window_mm = 160.0  # Window size in mm (±160mm from optimal position)
+        self.button_press_perfect_zone_mm = 70.0  # "Perfect" zone around optimal (±70mm = 100% accuracy)
         
         # Button state tracking for press-hold-release mechanism
         self.button_currently_held = False  # True when button is currently held down
@@ -230,7 +230,7 @@ class SharedStats:
         
         # Mode control: "hardware", "csv_playback", or None
         self.current_mode = None  # Will be determined by detect_mode()
-        self.mode_override = "csv_playback"  # Force CSV playback mode (uses hikaru data)
+        self.mode_override = "hardware"  # Force CSV playback mode (uses hikaru data)
         
         # CSV playback mode (replay data from sensor CSV files)
         self.anc_playback_mode = False
@@ -1391,15 +1391,16 @@ class SharedStats:
         # Total distance (already calculated)
         total_distance = self.total_distance
         
-        # Average accuracy - use combined (press+release) accuracies in manual mode
-        if not self.is_automatic_mode and self.button_combined_accuracies:
+        # Average accuracy - only calculate in manual mode, set to 0 in automatic mode
+        if self.is_automatic_mode:
+            # Automatic mode: don't record accuracy (set to 0)
+            avg_accuracy = 0.0
+        elif self.button_combined_accuracies:
+            # Manual mode: use combined (press+release) accuracies
             avg_accuracy = sum(self.button_combined_accuracies) / len(self.button_combined_accuracies)
         else:
-            total_attempts = self.score + self.misses
-            if total_attempts > 0:
-                avg_accuracy = (self.score / total_attempts) * 100
-            else:
-                avg_accuracy = 0.0
+            # Manual mode: no completed press-release cycles yet
+            avg_accuracy = 0.0
         
         # Use user-specific data directory
         data_dir = self.get_user_data_dir()
@@ -1439,7 +1440,8 @@ class SharedStats:
             "total_time": total_time_minutes,
             "avg_power": avg_power,
             "total_distance": total_distance,
-            "avg_accuracy": avg_accuracy
+            "avg_accuracy": avg_accuracy,
+            "is_automatic_mode": self.is_automatic_mode  # Include mode for summary display
         }
     
     def export_session_stats(self):
@@ -1458,12 +1460,17 @@ class SharedStats:
             # Total distance (already stored)
             total_distance_m = self.total_distance
             
-            # Accuracy (score / (score + misses) * 100)
-            total_attempts = self.score + self.misses
-            if total_attempts > 0:
-                accuracy = (self.score / total_attempts) * 100.0
-            else:
+            # Accuracy - only calculate in manual mode, set to 0 in automatic mode
+            if self.is_automatic_mode:
+                # Automatic mode: don't record accuracy (set to 0)
                 accuracy = 0.0
+            else:
+                # Manual mode: calculate from score/misses (for backward compatibility)
+                total_attempts = self.score + self.misses
+                if total_attempts > 0:
+                    accuracy = (self.score / total_attempts) * 100.0
+                else:
+                    accuracy = 0.0
             
             # Create Session_Data directory if it doesn't exist
             session_dir = os.path.join(os.path.dirname(__file__), "Session_Data")
@@ -2318,26 +2325,42 @@ class ModernStatsDisplay(wx.Panel):
         self.SetBackgroundColour(wx.Colour(248, 249, 250))
         self.shared_state = shared_state
 
-        # Create main horizontal sizer for the four metric cards
-        main_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        # Create main horizontal sizer for the metric cards
+        self.main_sizer = wx.BoxSizer(wx.HORIZONTAL)
 
         # Time Card
         self.time_card = self.create_metric_card("Time", "00:05:32", wx.Colour(255, 255, 255))
-        main_sizer.Add(self.time_card, 1, wx.EXPAND | wx.RIGHT, 15)
 
         # Power Card
         self.power_card = self.create_metric_card("Power", "185 W", wx.Colour(255, 255, 255))
-        main_sizer.Add(self.power_card, 1, wx.EXPAND | wx.RIGHT, 15)
 
         # Distance Card
         self.distance_card = self.create_metric_card("Distance", "0.5 km", wx.Colour(255, 255, 255))
-        main_sizer.Add(self.distance_card, 1, wx.EXPAND | wx.RIGHT, 15)
 
         # Accuracy Card
         self.accuracy_card = self.create_metric_card("Accuracy", "92%", wx.Colour(255, 255, 255))
-        main_sizer.Add(self.accuracy_card, 1, wx.EXPAND)
 
-        self.SetSizer(main_sizer)
+        # Initialize layout based on current mode
+        is_automatic = hasattr(shared_state, 'is_automatic_mode') and shared_state.is_automatic_mode
+        if is_automatic:
+            # AUTOMATIC MODE: Hide accuracy card and center the 3 remaining cards
+            self.accuracy_card.Hide()
+            self.main_sizer.AddStretchSpacer()
+            self.main_sizer.Add(self.time_card, 1, wx.EXPAND | wx.RIGHT, 15)
+            self.main_sizer.Add(self.power_card, 1, wx.EXPAND | wx.RIGHT, 15)
+            self.main_sizer.Add(self.distance_card, 1, wx.EXPAND)
+            self.main_sizer.AddStretchSpacer()
+        else:
+            # MANUAL MODE: Show all 4 cards
+            self.main_sizer.Add(self.time_card, 1, wx.EXPAND | wx.RIGHT, 15)
+            self.main_sizer.Add(self.power_card, 1, wx.EXPAND | wx.RIGHT, 15)
+            self.main_sizer.Add(self.distance_card, 1, wx.EXPAND | wx.RIGHT, 15)
+            self.main_sizer.Add(self.accuracy_card, 1, wx.EXPAND)
+
+        self.SetSizer(self.main_sizer)
+        
+        # Track current mode to detect changes
+        self.current_mode_is_automatic = is_automatic
 
     def create_metric_card(self, title, value, bg_color):
         # Create panel for the card
@@ -2377,6 +2400,38 @@ class ModernStatsDisplay(wx.Panel):
         return card_panel
 
     def update_stats(self):
+        # Check if mode has changed and update layout accordingly
+        is_automatic = hasattr(self.shared_state, 'is_automatic_mode') and self.shared_state.is_automatic_mode
+        
+        if self.current_mode_is_automatic != is_automatic:
+            # Mode changed - rebuild layout
+            self.current_mode_is_automatic = is_automatic
+            
+            # Clear and rebuild sizer based on mode
+            self.main_sizer.Clear(delete_windows=False)  # Don't delete the card windows
+            
+            if is_automatic:
+                # AUTOMATIC MODE: Hide accuracy card and center the 3 remaining cards
+                self.accuracy_card.Hide()
+                
+                # Add stretch spacer, then the 3 cards, then another stretch spacer
+                self.main_sizer.AddStretchSpacer()
+                self.main_sizer.Add(self.time_card, 1, wx.EXPAND | wx.RIGHT, 15)
+                self.main_sizer.Add(self.power_card, 1, wx.EXPAND | wx.RIGHT, 15)
+                self.main_sizer.Add(self.distance_card, 1, wx.EXPAND)
+                self.main_sizer.AddStretchSpacer()
+            else:
+                # MANUAL MODE: Show accuracy card, no centering spacers
+                self.accuracy_card.Show()
+                
+                # Add the 4 cards without spacers
+                self.main_sizer.Add(self.time_card, 1, wx.EXPAND | wx.RIGHT, 15)
+                self.main_sizer.Add(self.power_card, 1, wx.EXPAND | wx.RIGHT, 15)
+                self.main_sizer.Add(self.distance_card, 1, wx.EXPAND | wx.RIGHT, 15)
+                self.main_sizer.Add(self.accuracy_card, 1, wx.EXPAND)
+            
+            self.Layout()
+        
         # Update time
         minutes = int(self.shared_state.time_elapsed)
         seconds = int((self.shared_state.time_elapsed - minutes) * 60)
@@ -2396,8 +2451,8 @@ class ModernStatsDisplay(wx.Panel):
             distance_str = f"{int(distance_meters)} m"
         self.distance_value_label.SetLabel(distance_str)
 
-        # Update accuracy based on mode
-        if not self.shared_state.is_automatic_mode:
+        # Update accuracy only in manual mode (card is hidden in automatic mode)
+        if not is_automatic:
             # MANUAL MODE: accuracy from button press-hold-release timing (combined accuracy)
             if self.shared_state.button_combined_accuracies:
                 # Average all combined (press + release) accuracies
@@ -2406,28 +2461,19 @@ class ModernStatsDisplay(wx.Panel):
                 # No completed press-release cycles yet - start at 0%
                 accuracy = 0.0
             accuracy_str = f"{int(accuracy)}%"
-        else:
-            # AUTOMATIC MODE: accuracy from FES score/misses
-            total_attempts = self.shared_state.score + self.shared_state.misses
-            if total_attempts > 0:
-                accuracy = (self.shared_state.score / total_attempts) * 100
-            else:
-                accuracy = 0.0
-            accuracy_str = f"{int(accuracy)}%"
-        
-        self.accuracy_value_label.SetLabel(accuracy_str)
+            self.accuracy_value_label.SetLabel(accuracy_str)
 
-        # Update accuracy label color based on percentage (only if we have completed cycles)
-        has_completed_cycles = len(self.shared_state.button_combined_accuracies) > 0
-        if has_completed_cycles:
-            if accuracy >= 90:
-                self.accuracy_value_label.SetForegroundColour(wx.Colour(76, 175, 80))  # Green
-            elif accuracy >= 70:
-                self.accuracy_value_label.SetForegroundColour(wx.Colour(255, 193, 7))  # Amber
+            # Update accuracy label color based on percentage (only if we have completed cycles)
+            has_completed_cycles = len(self.shared_state.button_combined_accuracies) > 0
+            if has_completed_cycles:
+                if accuracy >= 90:
+                    self.accuracy_value_label.SetForegroundColour(wx.Colour(76, 175, 80))  # Green
+                elif accuracy >= 70:
+                    self.accuracy_value_label.SetForegroundColour(wx.Colour(255, 193, 7))  # Amber
+                else:
+                    self.accuracy_value_label.SetForegroundColour(wx.Colour(244, 67, 54))  # Red
             else:
-                self.accuracy_value_label.SetForegroundColour(wx.Colour(244, 67, 54))  # Red
-        else:
-            self.accuracy_value_label.SetForegroundColour(wx.Colour(64, 64, 64))  # Default gray
+                self.accuracy_value_label.SetForegroundColour(wx.Colour(64, 64, 64))  # Default gray
 
         self.Layout()
 

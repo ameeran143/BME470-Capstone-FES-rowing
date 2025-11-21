@@ -56,7 +56,10 @@ class SessionSummaryPage(wx.Panel):
         panel = wx.Panel(self)
         panel.SetBackgroundColour(wx.Colour(248, 249, 250))
         
-        # Create main horizontal sizer for the four metric cards
+        # Check if in automatic mode
+        is_automatic_mode = self.summary_data.get("is_automatic_mode", False)
+        
+        # Create main horizontal sizer for the metric cards
         main_sizer = wx.BoxSizer(wx.HORIZONTAL)
         
         # Format values from summary_data
@@ -74,24 +77,39 @@ class SessionSummaryPage(wx.Panel):
         else:
             distance_str = f"{int(total_distance)} m"
         
+        # Average Accuracy Card (only shown in manual mode)
         avg_accuracy = self.summary_data.get("avg_accuracy", 0)
         accuracy_str = f"{int(avg_accuracy)}%"
-        
-        # Total Time Card
-        time_card = self.create_metric_card(panel, "Total Time", time_str, wx.Colour(255, 255, 255))
-        main_sizer.Add(time_card, 1, wx.EXPAND | wx.RIGHT, 15)
-        
-        # Average Power Card
-        power_card = self.create_metric_card(panel, "Average Power", power_str, wx.Colour(255, 255, 255))
-        main_sizer.Add(power_card, 1, wx.EXPAND | wx.RIGHT, 15)
-        
-        # Total Distance Card
-        distance_card = self.create_metric_card(panel, "Total Distance", distance_str, wx.Colour(255, 255, 255))
-        main_sizer.Add(distance_card, 1, wx.EXPAND | wx.RIGHT, 15)
-        
-        # Average Accuracy Card
         accuracy_card = self.create_metric_card(panel, "Average Accuracy", accuracy_str, wx.Colour(255, 255, 255))
-        main_sizer.Add(accuracy_card, 1, wx.EXPAND)
+        
+        # Layout based on mode
+        if is_automatic_mode:
+            # AUTOMATIC MODE: Hide accuracy card and center the 3 remaining cards
+            accuracy_card.Hide()
+            main_sizer.AddStretchSpacer()
+            # Total Time Card
+            time_card = self.create_metric_card(panel, "Total Time", time_str, wx.Colour(255, 255, 255))
+            main_sizer.Add(time_card, 1, wx.EXPAND | wx.RIGHT, 15)
+            # Average Power Card
+            power_card = self.create_metric_card(panel, "Average Power", power_str, wx.Colour(255, 255, 255))
+            main_sizer.Add(power_card, 1, wx.EXPAND | wx.RIGHT, 15)
+            # Total Distance Card
+            distance_card = self.create_metric_card(panel, "Total Distance", distance_str, wx.Colour(255, 255, 255))
+            main_sizer.Add(distance_card, 1, wx.EXPAND)
+            main_sizer.AddStretchSpacer()
+        else:
+            # MANUAL MODE: Show all 4 cards
+            # Total Time Card
+            time_card = self.create_metric_card(panel, "Total Time", time_str, wx.Colour(255, 255, 255))
+            main_sizer.Add(time_card, 1, wx.EXPAND | wx.RIGHT, 15)
+            # Average Power Card
+            power_card = self.create_metric_card(panel, "Average Power", power_str, wx.Colour(255, 255, 255))
+            main_sizer.Add(power_card, 1, wx.EXPAND | wx.RIGHT, 15)
+            # Total Distance Card
+            distance_card = self.create_metric_card(panel, "Total Distance", distance_str, wx.Colour(255, 255, 255))
+            main_sizer.Add(distance_card, 1, wx.EXPAND | wx.RIGHT, 15)
+            # Average Accuracy Card
+            main_sizer.Add(accuracy_card, 1, wx.EXPAND)
         
         panel.SetSizer(main_sizer)
         return panel
