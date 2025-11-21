@@ -24,7 +24,9 @@ class AccountManager:
         # Store accounts file in the same directory as dashboard.py (Coaching App folder)
         script_dir = os.path.dirname(os.path.abspath(__file__))
         self.accounts_file = os.path.join(script_dir, "user_accounts.json")
+        self.clinician_accounts_file = os.path.join(script_dir, "clinician_accounts.json")
         self.accounts = self.load_accounts()
+        self.clinician_accounts = self.load_clinician_accounts()
         self.ensure_account_defaults()
     
     def load_accounts(self):
@@ -32,6 +34,16 @@ class AccountManager:
         try:
             if os.path.exists(self.accounts_file):
                 with open(self.accounts_file, "r") as f:
+                    return json.load(f)
+        except:
+            pass
+        return {}
+
+    def load_clinician_accounts(self):
+        """Load clinician accounts from file"""
+        try:
+            if os.path.exists(self.clinician_accounts_file):
+                with open(self.clinician_accounts_file, "r") as f:
                     return json.load(f)
         except:
             pass
@@ -52,17 +64,6 @@ class AccountManager:
             import traceback
             traceback.print_exc()
     
-    def hash_password(self, password):
-        """Hash password with salt"""
-        salt = secrets.token_hex(16)
-        password_hash = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt.encode('utf-8'), 100000)
-        return salt, password_hash.hex()
-    
-    def verify_password(self, password, salt, stored_hash):
-        """Verify password against stored hash"""
-        password_hash = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt.encode('utf-8'), 100000)
-        return password_hash.hex() == stored_hash
-    
     def ensure_account_defaults(self):
         """Ensure newly loaded accounts contain required default fields"""
         updated = False
@@ -73,22 +74,21 @@ class AccountManager:
         if updated:
             self.save_accounts()
     
-    def create_account(self, username, password, name=""):
-        """Create a new user account - simplified to only require username, password, and optional name"""
+    def create_account(self, username, password=None, name=""):
+        """Create a new user account - simplified. Password is now optional for patients."""
         if username in self.accounts:
             return False, "Username already exists"
         
-        if len(password) < 6:
-            return False, "Password must be at least 6 characters"
-        
-        salt, password_hash = self.hash_password(password)
+        # Only check password if one is provided (e.g. for admins, though they are in separate file)
+        # For patients, password can be None or empty
+        if password and len(password) < 4: # Reduced from 6
+            return False, "Password must be at least 4 characters"
         
         # Create simplified user data
         user_data = {
             "username": username,
             "name": name if name else username,  # Use username as name if not provided
-            "password_salt": salt,
-            "password_hash": password_hash,
+            "password": password, # Store password as plain text (if provided)
             "created_date": datetime.now().isoformat(),
             "total_sessions": 0,
             "total_time": 0,
@@ -126,21 +126,49 @@ class AccountManager:
             except Exception as e:
                 print(f"Error creating session_summary.csv for {username}: {e}")
         
-        return True, "Account created successfully"
+        return True, "Patient added successfully"
     
     def authenticate(self, username, password):
-        """Authenticate user login"""
+        """Authenticate user login - Legacy/Optional now for patients"""
         if username not in self.accounts:
-            return False, "Invalid username or password"
+            return False, "Invalid username"
         
         user_data = self.accounts[username]
-        salt = user_data["password_salt"]
-        stored_hash = user_data["password_hash"]
+        # If account has no password (patient), allow login without it
+        if not user_data.get("password"):
+            return True, user_data
+            
+        # Simple string comparison
+        if user_data.get("password") == password:
+            return True, user_data
+        else:
+            return False, "Invalid password"
+
+    def authenticate_clinician(self, username, password):
+        """Authenticate clinician login"""
+        if username not in self.clinician_accounts:
+            return False, "Invalid username or password"
         
-        if self.verify_password(password, salt, stored_hash):
+        user_data = self.clinician_accounts[username]
+        # Simple string comparison for clinician login too
+        stored_password = user_data.get("password")
+        
+        if stored_password == password:
             return True, user_data
         else:
             return False, "Invalid username or password"
+
+    def get_all_patients(self):
+        """Get list of all patients (users)"""
+        patients = []
+        for username, data in self.accounts.items():
+            patients.append({
+                "username": username,
+                "name": data.get("name", username)
+            })
+        # Sort by name
+        patients.sort(key=lambda x: x["name"].lower())
+        return patients
     
     def update_user_data(self, username, user_data):
         """Update user data"""

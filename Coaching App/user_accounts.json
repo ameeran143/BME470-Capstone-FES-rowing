@@ -47,109 +47,15 @@
     "last_session": null,
     "longest_distance": 16.43
   },
-  "test": {
-    "username": "test",
-    "name": "test",
-    "password_salt": "bdcfa9451f20f14a2f4bfdbe753d242a",
-    "password_hash": "74b16d67de68a5a44306a8386620ce9be97e025ed160629c20d4682f917b0d66",
-    "created_date": "2025-11-19T21:07:33.621842",
-    "total_sessions": 0,
-    "total_time": 0,
-    "best_stroke_rate": 0,
-    "cumulative_distance_m": 0.0,
-    "achievements": {
-      "first_session": false,
-      "ten_sessions": false,
-      "perfect_form": false,
-      "endurance_master": false,
-      "speed_demon": false,
-      "week_warrior": false,
-      "monthly_milestone": false,
-      "consistency_king": false
-    },
-    "progress_level": 1,
-    "last_session": null
-  },
-  "aashir1": {
-    "username": "aashir1",
-    "name": "aashir",
-    "password_salt": "340da252ce4e01dc2be4f3cd1cce2a77",
-    "password_hash": "57a7e5e1a897bc15e127611f8a235f420cb0f8f302c1d24430b33b3edc024465",
-    "created_date": "2025-11-20T12:34:20.851802",
-    "total_sessions": 0,
-    "total_time": 0,
-    "best_stroke_rate": 0,
-    "cumulative_distance_m": 0.0,
-    "achievements": {
-      "first_session": false,
-      "ten_sessions": false,
-      "perfect_form": false,
-      "endurance_master": false,
-      "speed_demon": false,
-      "week_warrior": false,
-      "monthly_milestone": false,
-      "consistency_king": false
-    },
-    "progress_level": 1,
-    "last_session": null
-  },
-  "bob": {
-    "username": "bob",
-    "name": "bob",
-    "password_salt": "813cab86b3b4c7d0987edc016d4fdffa",
-    "password_hash": "a2bd23d7f417eb41782a69fa34e8e70cdb0cc712f214eb65cd73649c787d4e2b",
-    "created_date": "2025-11-20T12:39:34.312936",
-    "total_sessions": 3,
-    "total_time": 0,
-    "best_stroke_rate": 0,
-    "cumulative_distance_m": 15.61,
-    "achievements": {
-      "first_session": true,
-      "ten_sessions": false,
-      "perfect_form": false,
-      "endurance_master": false,
-      "speed_demon": false,
-      "week_warrior": false,
-      "monthly_milestone": false,
-      "consistency_king": false
-    },
-    "progress_level": 1,
-    "last_session": null,
-    "longest_distance": 5.5
-  },
-  "bottle": {
-    "username": "bottle",
-    "name": "bottle",
-    "password_salt": "cb6f1d02b6cb57876e706dee804ba74c",
-    "password_hash": "bcccecbcff050b1f210db1c708a1d4bcf2fb20c6be65d9472ee9f30d3253fd0e",
-    "created_date": "2025-11-20T12:55:43.127795",
-    "total_sessions": 0,
-    "total_time": 0,
-    "best_stroke_rate": 0,
-    "cumulative_distance_m": 0.0,
-    "achievements": {
-      "first_session": false,
-      "ten_sessions": false,
-      "perfect_form": false,
-      "endurance_master": false,
-      "speed_demon": false,
-      "week_warrior": false,
-      "monthly_milestone": false,
-      "consistency_king": false
-    },
-    "progress_level": 1,
-    "last_session": null
-  },
-  "ontario": {
-    "username": "ontario",
-    "name": "ontario",
-    "password_salt": "2a767a60ff051adca903f4a6e449d891",
-    "password_hash": "239ae97a841966535a9a8449681f08dc97027ae31eeff738767f118abca30966",
-    "created_date": "2025-11-20T13:00:14.515120",
+  "test1": {
+    "username": "test1",
+    "name": "test1",
+    "password": null,
+    "created_date": "2025-11-21T18:25:53.219798",
     "total_sessions": 1,
     "total_time": 0,
     "best_stroke_rate": 0,
-    "cumulative_distance_m": 4.43,
+    "cumulative_distance_m": 5.95,
     "achievements": {
       "first_session": true,
       "ten_sessions": false,
@@ -162,6 +68,6 @@
     },
     "progress_level": 1,
     "last_session": null,
-    "longest_distance": 4.43
+    "longest_distance": 5.95
   }
 }
