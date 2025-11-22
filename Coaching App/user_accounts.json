@@ -21,7 +21,8 @@
       "consistency_king": false
     },
     "progress_level": 1,
-    "last_session": null
+    "last_session": null,
+    "cumulative_rowing_time_seconds": 0.0
   },
   "aashir": {
     "username": "aashir",
@@ -29,7 +30,7 @@
     "password_salt": "6d2b8d91fea77f3b93435c9ff1e23273",
     "password_hash": "dbf5c205b4f93823a5a65cf9e55622633261bd8c4efef65c9d1288a7d776a84d",
     "created_date": "2025-11-19T14:20:19.949291",
-    "total_sessions": 15,
+    "total_sessions": 16,
     "total_time": 0,
     "best_stroke_rate": 0,
     "cumulative_distance_m": 74.19,
@@ -45,17 +46,19 @@
     },
     "progress_level": 1,
     "last_session": null,
-    "longest_distance": 16.43
+    "longest_distance": 16.43,
+    "cumulative_rowing_time_seconds": 0.0
   },
-  "test1": {
-    "username": "test1",
-    "name": "test1",
+  "test2": {
+    "username": "test2",
+    "name": "test2",
     "password": null,
-    "created_date": "2025-11-21T18:25:53.219798",
-    "total_sessions": 1,
+    "created_date": "2025-11-21T19:21:41.648369",
+    "total_sessions": 2,
     "total_time": 0,
     "best_stroke_rate": 0,
-    "cumulative_distance_m": 5.95,
+    "cumulative_distance_m": 18.07,
+    "cumulative_rowing_time_seconds": 63.699999999999996,
     "achievements": {
       "first_session": true,
       "ten_sessions": false,
@@ -68,6 +71,30 @@
     },
     "progress_level": 1,
     "last_session": null,
-    "longest_distance": 5.95
+    "longest_distance": 15.68
+  },
+  "Bonzo": {
+    "username": "Bonzo",
+    "name": "Bonzo",
+    "password": null,
+    "created_date": "2025-11-21T19:30:11.341883",
+    "total_sessions": 1,
+    "total_time": 0,
+    "best_stroke_rate": 0,
+    "cumulative_distance_m": 20.08,
+    "cumulative_rowing_time_seconds": 69.2,
+    "achievements": {
+      "first_session": true,
+      "ten_sessions": false,
+      "perfect_form": false,
+      "endurance_master": false,
+      "speed_demon": false,
+      "week_warrior": false,
+      "monthly_milestone": false,
+      "consistency_king": false
+    },
+    "progress_level": 1,
+    "last_session": null,
+    "longest_distance": 20.08
   }
 }

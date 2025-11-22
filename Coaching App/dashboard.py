@@ -14,6 +14,7 @@ import numpy as np
 from collections import defaultdict
 from datetime import datetime, timedelta
 from map_logic import MapLogic
+from settings_manager import SettingsManager
 
 # Configuration: Set to False to skip login and use demo account automatically
 REQUIRE_LOGIN = False
@@ -71,6 +72,9 @@ class AccountManager:
             if "cumulative_distance_m" not in data:
                 data["cumulative_distance_m"] = 0.0
                 updated = True
+            if "cumulative_rowing_time_seconds" not in data:
+                data["cumulative_rowing_time_seconds"] = 0.0
+                updated = True
         if updated:
             self.save_accounts()
     
@@ -94,6 +98,7 @@ class AccountManager:
             "total_time": 0,
             "best_stroke_rate": 0,
             "cumulative_distance_m": 0.0,
+            "cumulative_rowing_time_seconds": 0.0,
             "achievements": {
                 "first_session": False,
                 "ten_sessions": False,
@@ -169,6 +174,24 @@ class AccountManager:
         # Sort by name
         patients.sort(key=lambda x: x["name"].lower())
         return patients
+    
+    def delete_account(self, username):
+        """Delete a patient account and their data"""
+        if username in self.accounts:
+            del self.accounts[username]
+            self.save_accounts()
+            
+            # Delete user data directory
+            import shutil
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            user_session_dir = os.path.join(script_dir, "user_session_data", username)
+            if os.path.exists(user_session_dir):
+                try:
+                    shutil.rmtree(user_session_dir)
+                except Exception as e:
+                    print(f"Error deleting user data directory for {username}: {e}")
+            return True
+        return False
     
     def update_user_data(self, username, user_data):
         """Update user data"""
@@ -1143,6 +1166,7 @@ class MapCard(wx.Panel):
         
         # Store username for distance calculation
         self.username = username
+        self.settings_manager = SettingsManager()
         
         # Use shared map logic for consistency with game screen
         self.location_milestones = MapLogic.LOCATION_MILESTONES
@@ -1297,8 +1321,8 @@ class MapCard(wx.Panel):
         # Update location unlock status based on distance
         self.update_location_status()
     
-    def get_cumulative_distance(self):
-        """Get cumulative total distance for the current user from user_accounts.json"""
+    def get_cumulative_time(self):
+        """Get cumulative rowing time for the current user from user_accounts.json"""
         if not self.username:
             return 0.0
         
@@ -1307,14 +1331,15 @@ class MapCard(wx.Panel):
             with open(accounts_file, "r") as f:
                 accounts = json.load(f)
             user_data = accounts.get(self.username, {})
-            return float(user_data.get("cumulative_distance_m", 0.0))
+            return float(user_data.get("cumulative_rowing_time_seconds", 0.0))
         except Exception as e:
-            print(f"Error loading cumulative distance for {self.username}: {e}")
+            print(f"Error loading cumulative time for {self.username}: {e}")
             return 0.0
     
     def update_location_status(self):
-        """Update lock/unlock status of locations based on cumulative distance using shared MapLogic"""
-        cumulative_distance = self.get_cumulative_distance()
+        """Update lock/unlock status of locations based on cumulative time using shared MapLogic"""
+        cumulative_time = self.get_cumulative_time()
+        interval = self.settings_manager.get_map_interval()
         
         import os
         script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -1322,11 +1347,11 @@ class MapCard(wx.Panel):
         check_path = os.path.join(assets_dir, "check.png")
         lock_path = os.path.join(assets_dir, "lock.png")
         
-        # Get unlocked locations using shared MapLogic
-        unlocked_locations = MapLogic.get_unlocked_locations(cumulative_distance)
+        # Get unlocked locations using shared MapLogic (time based)
+        unlocked_locations = MapLogic.get_unlocked_locations_by_time(cumulative_time, interval)
         
         # Update each location - once unlocked, stays unlocked forever
-        for location_name, milestone_distance, is_unlocked in unlocked_locations:
+        for location_name, milestone_seconds, is_unlocked in unlocked_locations:
             if location_name not in self.location_widgets:
                 continue
             
@@ -1686,16 +1711,20 @@ class DashboardPage(wx.Panel):
         # Calculate longest distance and cumulative distance from sessions
         longest_distance = 0.0
         cumulative_distance = 0.0
+        cumulative_time = 0.0
+        
         for session in sessions:
             distance = session.get('distance', 0.0)
             longest_distance = max(longest_distance, distance)
             cumulative_distance += distance  # Sum all session distances
+            cumulative_time += session.get('rowing_time', 0.0) # Sum rowing time
         
         # Update all statistics based on session data
         self.account_manager.accounts[username]['achievements'] = achievements
         self.account_manager.accounts[username]['total_sessions'] = total_sessions
         self.account_manager.accounts[username]['longest_distance'] = longest_distance
         self.account_manager.accounts[username]['cumulative_distance_m'] = cumulative_distance
+        self.account_manager.accounts[username]['cumulative_rowing_time_seconds'] = cumulative_time
         
         # Save updated data to file
         self.account_manager.save_accounts()
@@ -1706,6 +1735,7 @@ class DashboardPage(wx.Panel):
             self.user_data['total_sessions'] = total_sessions
             self.user_data['longest_distance'] = longest_distance
             self.user_data['cumulative_distance_m'] = cumulative_distance
+            self.user_data['cumulative_rowing_time_seconds'] = cumulative_time
     
     def load_user_session_data(self, username):
         """Load session data from CSV file for a user"""
@@ -1779,12 +1809,22 @@ class DashboardPage(wx.Panel):
                         except (ValueError, TypeError):
                             avg_accuracy = 0.0
                         
+                        # Parse rowing time (if available)
+                        rowing_time = 0.0
+                        try:
+                            rt_str = row.get("Rowing Time (s)", "0")
+                            if rt_str is not None and str(rt_str).strip():
+                                rowing_time = float(rt_str)
+                        except (ValueError, TypeError):
+                            rowing_time = 0.0
+                        
                         sessions.append({
                             'date': date_str,
                             'time_minutes': total_minutes,
                             'distance': distance,
                             'avg_power': avg_power,
-                            'avg_accuracy': avg_accuracy
+                            'avg_accuracy': avg_accuracy,
+                            'rowing_time': rowing_time
                         })
                         total_sessions += 1
             except Exception as e:

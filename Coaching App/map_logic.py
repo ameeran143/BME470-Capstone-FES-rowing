@@ -5,11 +5,20 @@ across game screen and dashboard.
 
 class MapLogic:
     """
-    Centralized logic for calculating current location and progress
-    based on cumulative distance traveled.
+    Centralized logic for calculating current location and progress.
+    Originally based on distance, now supports time-based switching.
     """
     
-    # Location milestones (distance in meters to reach each location)
+    # Location names in order
+    LOCATION_NAMES = [
+        "Hawaii",
+        "Antarctica",
+        "Amazon",
+        "Japan",
+        "Australia"
+    ]
+    
+    # Legacy distance milestones (can keep for reference or fallback)
     LOCATION_MILESTONES = [
         ("Hawaii", 0),
         ("Antarctica", 20),
@@ -22,23 +31,83 @@ class MapLogic:
     CYCLE_DISTANCE = LOCATION_INTERVAL * len(LOCATION_MILESTONES)  # Total distance per cycle (100m)
     
     @classmethod
-    def get_current_location_info(cls, cumulative_distance):
+    def get_current_location_info_by_time(cls, cumulative_time_seconds, interval_minutes):
         """
-        Calculate current location and progress to next location.
+        Calculate current location and progress based on cumulative time.
         
         Args:
-            cumulative_distance: Total distance traveled in meters (can be > CYCLE_DISTANCE)
-        
+            cumulative_time_seconds: Total time rowed in seconds
+            interval_minutes: Minutes required to unlock next map
+            
         Returns:
-            dict with keys:
-                - current_location: Name of current location
-                - current_index: Index of current location (0-4)
-                - next_location: Name of next location
-                - next_index: Index of next location (0-4)
-                - progress_to_next: Progress to next location (0.0 to 1.0)
-                - position_in_cycle: Position within current cycle (0 to CYCLE_DISTANCE)
-                - distance_to_next: Meters remaining to next location
-                - segment_length: Length of current segment in meters
+            dict with keys for location info
+        """
+        interval_seconds = interval_minutes * 60
+        if interval_seconds <= 0:
+            interval_seconds = 300 # Default 5 min to avoid div by zero
+            
+        # Total cycle time (all maps)
+        cycle_seconds = interval_seconds * len(cls.LOCATION_NAMES)
+        
+        # Position in current cycle
+        position_in_cycle = cumulative_time_seconds % cycle_seconds
+        
+        # Current index
+        current_index = int(position_in_cycle // interval_seconds)
+        current_index = min(current_index, len(cls.LOCATION_NAMES) - 1)
+        
+        current_location_name = cls.LOCATION_NAMES[current_index]
+        next_index = (current_index + 1) % len(cls.LOCATION_NAMES)
+        next_location_name = cls.LOCATION_NAMES[next_index]
+        
+        # Distance into current segment (time based)
+        time_into_segment = position_in_cycle - (current_index * interval_seconds)
+        
+        # Progress (0.0 to 1.0)
+        progress_to_next = min(1.0, time_into_segment / interval_seconds)
+        
+        return {
+            'current_location': current_location_name,
+            'current_index': current_index,
+            'next_location': next_location_name,
+            'next_index': next_index,
+            'progress_to_next': progress_to_next,
+            # Legacy/Compat keys (mapped to time values or dummy distance)
+            'position_in_cycle': position_in_cycle, 
+            'segment_length': interval_seconds,
+            'distance_into_segment': time_into_segment,
+            'distance_to_next': interval_seconds - time_into_segment,
+        }
+
+    @classmethod
+    def get_unlocked_locations_by_time(cls, cumulative_time_seconds, interval_minutes):
+        """
+        Get list of unlocked locations based on cumulative time.
+        
+        Args:
+            cumulative_time_seconds: Total time rowed in seconds
+            interval_minutes: Minutes per map
+            
+        Returns:
+            list of tuples: [(location_name, milestone_seconds, is_unlocked), ...]
+        """
+        interval_seconds = interval_minutes * 60
+        if interval_seconds <= 0: interval_seconds = 300
+            
+        unlocked = []
+        for i, location_name in enumerate(cls.LOCATION_NAMES):
+            milestone_seconds = i * interval_seconds
+            # First map (Hawaii) is always unlocked (0 seconds)
+            # Others unlock when cumulative time >= milestone
+            is_unlocked = cumulative_time_seconds >= milestone_seconds
+            unlocked.append((location_name, milestone_seconds, is_unlocked))
+            
+        return unlocked
+
+    @classmethod
+    def get_current_location_info(cls, cumulative_distance):
+        """
+        Legacy method for distance-based calculation.
         """
         # Calculate position within the current cycle (0 to CYCLE_DISTANCE)
         position_in_cycle = cumulative_distance % cls.CYCLE_DISTANCE if cls.CYCLE_DISTANCE > 0 else 0.0
@@ -61,21 +130,16 @@ class MapLogic:
         next_milestone = cls.LOCATION_MILESTONES[next_index][1]
         
         if next_milestone > current_milestone:
-            # Normal case: next milestone is after current
             segment_length = next_milestone - current_milestone
         else:
-            # Wrap-around case: we're at the last location, next is the first
             segment_length = cls.CYCLE_DISTANCE - current_milestone
         
-        # Calculate distance into current segment
         distance_into_segment = position_in_cycle - current_milestone
         if distance_into_segment < 0:
             distance_into_segment += cls.CYCLE_DISTANCE
         
-        # Calculate progress as fraction (0.0 to 1.0)
         progress_to_next = min(1.0, distance_into_segment / segment_length) if segment_length > 0 else 0.0
         
-        # Calculate distance remaining to next location
         distance_to_next = segment_length - distance_into_segment
         
         return {
@@ -93,19 +157,9 @@ class MapLogic:
     
     @classmethod
     def get_unlocked_locations(cls, cumulative_distance):
-        """
-        Get list of unlocked locations based on cumulative distance.
-        Locations stay unlocked permanently once reached.
-        
-        Args:
-            cumulative_distance: Total distance traveled in meters
-        
-        Returns:
-            list of tuples: [(location_name, milestone_distance, is_unlocked), ...]
-        """
+        """Legacy distance-based unlock"""
         unlocked = []
         for location_name, milestone_distance in cls.LOCATION_MILESTONES:
             is_unlocked = cumulative_distance >= milestone_distance
             unlocked.append((location_name, milestone_distance, is_unlocked))
         return unlocked
-

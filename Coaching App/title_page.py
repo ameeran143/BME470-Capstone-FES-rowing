@@ -1,6 +1,7 @@
 import wx
 from game_page import ModernCard
 from dashboard import AccountManager
+from settings_manager import SettingsManager
 
 class TitlePage(wx.Panel):
     def __init__(self, parent):
@@ -247,6 +248,7 @@ class PatientSelectionPage(wx.Panel):
     def __init__(self, parent):
         super(PatientSelectionPage, self).__init__(parent)
         self.account_manager = AccountManager()
+        self.settings_manager = SettingsManager()
         
         # Match app background color
         self.SetBackgroundColour(wx.Colour(248, 249, 250))
@@ -255,7 +257,7 @@ class PatientSelectionPage(wx.Panel):
         main_sizer.AddSpacer(60)
         
         # Title
-        self.title_label = wx.StaticText(self, label="Select Patient")
+        self.title_label = wx.StaticText(self, label="Configuration")
         title_font = wx.Font(48, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
         self.title_label.SetFont(title_font)
         self.title_label.SetForegroundColour(wx.Colour(33, 37, 41))
@@ -266,33 +268,47 @@ class PatientSelectionPage(wx.Panel):
         # Card container
         self.card = wx.Panel(self)
         self.card.SetBackgroundColour(wx.Colour(255, 255, 255))
-        self.card.SetMinSize((600, 300))
+        self.card.SetMinSize((600, 600)) # Increased height to fit all buttons comfortably
         self.card.Bind(wx.EVT_PAINT, self.on_paint_card)
         
         card_sizer = wx.BoxSizer(wx.VERTICAL)
-        card_sizer.AddSpacer(40)
+        card_sizer.AddSpacer(50)
         
         # Label
-        lbl = wx.StaticText(self.card, label="Existing Patients")
-        lbl.SetFont(wx.Font(18, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
-        card_sizer.Add(lbl, 0, wx.LEFT | wx.TOP, 40)
+        lbl = wx.StaticText(self.card, label="Select a patient")
+        lbl.SetFont(wx.Font(24, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        card_sizer.Add(lbl, 0, wx.ALIGN_CENTER)
         
-        card_sizer.AddSpacer(20)
+        card_sizer.AddSpacer(30)
         
         # Dropdown
-        self.patient_choice = wx.Choice(self.card, size=(520, 50))
+        self.patient_choice = wx.Choice(self.card, size=(400, 50))
         # Increase font size for the dropdown (Choice control font)
         self.patient_choice.SetFont(wx.Font(16, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
-        card_sizer.Add(self.patient_choice, 0, wx.LEFT | wx.RIGHT | wx.EXPAND, 40)
+        card_sizer.Add(self.patient_choice, 0, wx.ALIGN_CENTER)
         
         card_sizer.AddSpacer(40)
         
         # Add Patient Button
         self.add_btn = ModernCard(self.card, "+ Add New Patient", self.on_add_patient, enabled=True, font_size=20)
-        self.add_btn.SetMinSize((250, 60))
+        self.add_btn.SetMinSize((300, 60))
         card_sizer.Add(self.add_btn, 0, wx.ALIGN_CENTER)
         
-        card_sizer.AddSpacer(40)
+        card_sizer.AddSpacer(20)
+        
+        # Remove Patient Button
+        self.remove_btn = ModernCard(self.card, "Remove Patient", self.on_remove_patient, enabled=True, font_size=20)
+        self.remove_btn.SetMinSize((300, 60))
+        card_sizer.Add(self.remove_btn, 0, wx.ALIGN_CENTER)
+        
+        card_sizer.AddSpacer(20)
+        
+        # Settings Button
+        self.settings_btn = ModernCard(self.card, "Settings", self.on_settings, enabled=True, font_size=20)
+        self.settings_btn.SetMinSize((300, 60))
+        card_sizer.Add(self.settings_btn, 0, wx.ALIGN_CENTER)
+        
+        card_sizer.AddSpacer(50)
         self.card.SetSizer(card_sizer)
         
         # Add card to main sizer
@@ -359,6 +375,31 @@ class PatientSelectionPage(wx.Panel):
             if hasattr(dlg, 'new_username') and dlg.new_username in self.patient_usernames:
                 idx = self.patient_usernames.index(dlg.new_username)
                 self.patient_choice.SetSelection(idx)
+        dlg.Destroy()
+        
+    def on_remove_patient(self, event):
+        sel = self.patient_choice.GetSelection()
+        if sel == wx.NOT_FOUND:
+            wx.MessageBox("Please select a patient to remove.", "Info")
+            return
+        
+        username = self.patient_usernames[sel]
+        
+        # First confirmation
+        if wx.MessageBox(f"Are you sure you want to remove patient '{username}'?", 
+                         "Confirm Remove", wx.YES_NO | wx.ICON_WARNING) == wx.YES:
+            # Second confirmation
+            if wx.MessageBox(f"This will permanently delete all data for '{username}'. This action cannot be undone. Proceed?", 
+                             "Final Confirmation", wx.YES_NO | wx.ICON_ERROR) == wx.YES:
+                if self.account_manager.delete_account(username):
+                    wx.MessageBox("Patient removed successfully.", "Success")
+                    self.refresh_patient_list()
+                else:
+                    wx.MessageBox("Error removing patient.", "Error")
+        
+    def on_settings(self, event):
+        dlg = SettingsDialog(self, self.settings_manager)
+        dlg.ShowModal()
         dlg.Destroy()
 
     def on_logout(self, event):
@@ -461,3 +502,49 @@ class AddPatientDialog(wx.Dialog):
             self.EndModal(wx.ID_OK)
         else:
             self.error_lbl.SetLabel(msg)
+
+class SettingsDialog(wx.Dialog):
+    def __init__(self, parent, settings_manager):
+        super(SettingsDialog, self).__init__(parent, title="Clinician Settings", size=(500, 300))
+        self.settings_manager = settings_manager
+        
+        self.SetBackgroundColour(wx.Colour(255, 255, 255))
+        
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.AddSpacer(20)
+        
+        title = wx.StaticText(self, label="Settings")
+        title.SetFont(wx.Font(24, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        sizer.Add(title, 0, wx.ALIGN_CENTER | wx.BOTTOM, 30)
+        
+        # Map Unlock Interval
+        map_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        map_label = wx.StaticText(self, label="Map Unlock Interval (min):")
+        map_label.SetFont(wx.Font(14, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        map_sizer.Add(map_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 10)
+        
+        current_interval = self.settings_manager.get_map_interval()
+        self.interval_ctrl = wx.SpinCtrl(self, value=str(current_interval), min=1, max=120)
+        map_sizer.Add(self.interval_ctrl, 0, wx.ALIGN_CENTER_VERTICAL)
+        
+        sizer.Add(map_sizer, 0, wx.ALIGN_CENTER | wx.BOTTOM, 40)
+        
+        # Buttons
+        btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        
+        cancel_btn = wx.Button(self, wx.ID_CANCEL, "Cancel")
+        btn_sizer.Add(cancel_btn, 0, wx.RIGHT, 20)
+        
+        save_btn = wx.Button(self, label="Save")
+        save_btn.Bind(wx.EVT_BUTTON, self.on_save)
+        btn_sizer.Add(save_btn, 0)
+        
+        sizer.Add(btn_sizer, 0, wx.ALIGN_CENTER | wx.BOTTOM, 20)
+        
+        self.SetSizer(sizer)
+        self.CenterOnParent()
+        
+    def on_save(self, event):
+        interval = self.interval_ctrl.GetValue()
+        self.settings_manager.set_map_interval(interval)
+        self.EndModal(wx.ID_OK)

@@ -29,6 +29,7 @@ except ImportError:
 import csv
 import math
 from map_logic import MapLogic
+from settings_manager import SettingsManager
 import json
 from PIL import Image, ImageDraw
 from scipy import signal
@@ -214,12 +215,17 @@ class SharedStats:
         # File to store stats
         self.stats_file_path = None
         self.accounts_file = os.path.join(os.path.dirname(__file__), "user_accounts.json")
+        self.total_distance = 0.0
+        self.session_rowing_time = 0.0 # Time spent rowing (power > 0) in seconds
         self.cumulative_distance_live = 0.0
         self.cumulative_distance_saved = 0.0
+        self.cumulative_time_live = 0.0 # Base cumulative rowing time from file
         self._cumulative_loaded = False
         self._last_cumulative_persist = 0
         self._cumulative_user = None
         self.ensure_cumulative_distance_loaded()
+        
+        self.settings_manager = SettingsManager()
         
         # Hardware testing - Auto-detect OS
         import platform
@@ -230,7 +236,7 @@ class SharedStats:
         
         # Mode control: "hardware", "csv_playback", or None
         self.current_mode = None  # Will be determined by detect_mode()
-        self.mode_override = "hardware"  # Force CSV playback mode (uses hikaru data)
+        self.mode_override = "csv_playback"  # Force CSV playback mode (uses hikaru data)
         
         # CSV playback mode (replay data from sensor CSV files)
         self.anc_playback_mode = False
@@ -583,29 +589,31 @@ class SharedStats:
             try:
                 with open(csv_file, 'w', newline='') as f:
                     writer = csv.writer(f)
-                    writer.writerow(['Date', 'Name', 'Total Time (min:sec)', 'Average Power (W)', 'Total Distance (m)', 'Average Accuracy (%)'])
+                    writer.writerow(['Date', 'Name', 'Total Time (min:sec)', 'Average Power (W)', 'Total Distance (m)', 'Average Accuracy (%)', 'Rowing Time (s)'])
             except Exception as e:
                 print(f"Error creating session_summary.csv for {safe_name}: {e}")
         
         return user_dir
     
     def ensure_cumulative_distance_loaded(self):
-        """Load cumulative distance for the active user from user_accounts.json"""
+        """Load cumulative stats for the active user from user_accounts.json"""
         current_user = self.user_name or "demo"
         if self._cumulative_loaded and self._cumulative_user == current_user:
             return
         
         self._cumulative_user = current_user
-        cumulative_value = 0.0
+        cumulative_dist = 0.0
+        cumulative_time = 0.0
         try:
             accounts = self._load_accounts_data()
             user_entry = accounts.get(current_user, {})
-            cumulative_value = float(user_entry.get("cumulative_distance_m", 0.0))
+            cumulative_dist = float(user_entry.get("cumulative_distance_m", 0.0))
+            cumulative_time = float(user_entry.get("cumulative_rowing_time_seconds", 0.0))
         except Exception as e:
-            print(f"Failed to load cumulative distance for {current_user}: {e}")
+            print(f"Failed to load cumulative stats for {current_user}: {e}")
         
-        self.cumulative_distance_live = cumulative_value
-        self.cumulative_distance_saved = cumulative_value
+        self.cumulative_distance_live = cumulative_dist
+        self.cumulative_time_live = cumulative_time
         self._cumulative_loaded = True
         self._last_cumulative_persist = time.time()
     
@@ -646,12 +654,14 @@ class SharedStats:
         pass
     
     def get_cumulative_total_distance(self):
-        """Return cumulative distance for display: base (from sessions) + current session distance.
-        Cumulative distance is calculated from session summaries by dashboard, not incremented here."""
+        """Return cumulative distance for display: base (from sessions) + current session distance."""
         self.ensure_cumulative_distance_loaded()
-        # cumulative_distance_live is the BASE cumulative distance from previous sessions (calculated by dashboard)
-        # Add current session distance for display
         return self.cumulative_distance_live + self.total_distance
+
+    def get_cumulative_total_rowing_time(self):
+        """Return cumulative rowing time (seconds) for display/logic."""
+        self.ensure_cumulative_distance_loaded()
+        return self.cumulative_time_live + self.session_rowing_time
         
     def create_stats_file(self):
         """Disabled - no longer creating rowing stats files, only session summaries"""
@@ -1352,6 +1362,10 @@ class SharedStats:
                 distance_increment = (current_power / drag_factor) * time_delta
                 self.total_distance += distance_increment
                 self.increment_cumulative_distance(distance_increment)
+                
+                # Increment rowing time if power > 0
+                if current_power > 0:
+                    self.session_rowing_time += time_delta
 
     def write_stats_to_file(self):
         """Disabled - no longer writing rowing stats files, only session summaries"""
@@ -1407,9 +1421,55 @@ class SharedStats:
         filename = "session_summary.csv"
         file_path = os.path.join(data_dir, filename)
         
-        # Check if file exists to determine if we need to write headers
+        # Check if file exists and validate header for "Rowing Time (s)" column
         file_exists = os.path.exists(file_path)
+        header_needs_update = False
+        existing_rows = []
+        existing_header = []
         
+        if file_exists:
+            try:
+                with open(file_path, 'r', newline='') as f:
+                    reader = csv.reader(f)
+                    try:
+                        existing_header = next(reader)
+                        if "Rowing Time (s)" not in existing_header:
+                            header_needs_update = True
+                            existing_rows = list(reader)
+                    except StopIteration:
+                        # Empty file
+                        file_exists = False
+            except Exception as e:
+                print(f"Error reading CSV for header check: {e}")
+                
+        if header_needs_update:
+            print(f"Updating CSV header for {file_path} to include Rowing Time")
+            try:
+                with open(file_path, 'w', newline='') as f:
+                    writer = csv.writer(f)
+                    # Create new header
+                    new_header = ["Date", "Name", "Total Time (min:sec)", "Average Power (W)", "Total Distance (m)", "Average Accuracy (%)", "Rowing Time (s)"]
+                    writer.writerow(new_header)
+                    
+                    # Map old columns to new header if possible, otherwise just append 0.0
+                    # Assuming standard order for old files: Date, Name, Time, Power, Distance, Accuracy
+                    for row in existing_rows:
+                        # Check if row already has data for the new column (e.g. from a previous append without header update)
+                        if len(row) >= 7:
+                            # Keep the existing data (assuming 7th col is rowing time)
+                            new_row = row[:7]
+                        else:
+                            # Pad row to ensure it has enough columns for old format
+                            while len(row) < 6:
+                                row.append("")
+                            
+                            # Take first 6 columns and add 0.0 for rowing time
+                            new_row = row[:6] + ["0.0"]
+                        
+                        writer.writerow(new_row)
+            except Exception as e:
+                print(f"Error updating CSV header: {e}")
+
         # Get current date (date only, no time)
         date_str = time.strftime('%Y-%m-%d')
         
@@ -1417,9 +1477,9 @@ class SharedStats:
         with open(file_path, 'a', newline='') as file:
             writer = csv.writer(file)
             
-            # Write header if file is new - column order: date, name, total time, average power, total distance, average accuracy
-            if not file_exists:
-                writer.writerow(["Date", "Name", "Total Time (min:sec)", "Average Power (W)", "Total Distance (m)", "Average Accuracy (%)"])
+            # Write header if file is new or was just reset/empty
+            if not file_exists and not header_needs_update:
+                 writer.writerow(["Date", "Name", "Total Time (min:sec)", "Average Power (W)", "Total Distance (m)", "Average Accuracy (%)", "Rowing Time (s)"])
             
             # Write session data in the correct order
             writer.writerow([
@@ -1428,7 +1488,8 @@ class SharedStats:
                 time_str,  # Total Time in MM:SS format
                 f"{avg_power:.2f}",  # Average Power
                 f"{total_distance:.2f}",  # Total Distance
-                f"{avg_accuracy:.2f}"  # Average Accuracy
+                f"{avg_accuracy:.2f}",  # Average Accuracy
+                f"{self.session_rowing_time:.2f}" # Rowing Time (s)
             ])
         
         self.force_persist_cumulative_distance()
@@ -2060,6 +2121,8 @@ class GamePage(wx.Panel):
         self.shared_state._cumulative_loaded = False
         self.shared_state.ensure_cumulative_distance_loaded()
         
+        self.shared_state.session_rowing_time = 0.0 # Reset session rowing time
+        
         # CRITICAL: Mark game as started and reset last_update_time to prevent distance jumps
         # This must happen AFTER resetting stats but BEFORE timer starts processing data
         self.shared_state.game_started = True
@@ -2489,6 +2552,7 @@ class ModernStatsDisplay(wx.Panel):
         self.shared_state.misses = 0
         self.shared_state.same_stroke = False
         self.shared_state.total_distance = 0.0
+        self.session_rowing_time = 0.0 # Reset rowing time
         self.shared_state.last_update_time = time.time()
 
         self.shared_state.handle_force = []
@@ -2670,23 +2734,30 @@ class LocationProgressPanel(wx.Panel):
             dc.DrawRoundedRectangle(0, 0, progress_width, height, 10)
     
     def update_display(self):
-        """Update location and progress display using shared MapLogic"""
-        cumulative_total_distance = self.shared_state.get_cumulative_total_distance()
+        """Update location and progress display using shared MapLogic with time-based logic"""
+        # Use time instead of distance
+        cumulative_total_time = self.shared_state.get_cumulative_total_rowing_time()
+        interval = self.shared_state.settings_manager.get_map_interval()
         
-        # Use shared map logic for consistent calculation
-        location_info = MapLogic.get_current_location_info(cumulative_total_distance)
+        # Use shared map logic with time
+        location_info = MapLogic.get_current_location_info_by_time(cumulative_total_time, interval)
         
         # Update location and progress labels
         self.shared_state.current_location = location_info['current_location']
         self.location_label.SetLabel(location_info['current_location'])
         self.current_progress = location_info['progress_to_next']
         
-        # Get distance traveled in current segment (0-20m) - already calculated correctly
-        distance_in_segment = location_info['distance_into_segment']
-        segment_length = location_info['segment_length']
+        # Get time passed in current segment (in seconds)
+        time_in_segment = location_info['distance_into_segment'] # Mapped to time_into_segment
+        segment_duration = location_info['segment_length'] # Mapped to interval_seconds
         
-        # Update distance label to show meters in current segment (0-20m)
-        self.distance_label.SetLabel(f"{distance_in_segment:.1f}m / {segment_length:.0f}m")
+        # Convert seconds to minutes for display, or keep as mm:ss
+        # Display: "X min / Y min"
+        time_min = time_in_segment / 60.0
+        segment_min = segment_duration / 60.0
+        
+        # Update distance label to show time in current segment
+        self.distance_label.SetLabel(f"{time_min:.1f} min / {segment_min:.0f} min")
         self.next_location_label.SetLabel(location_info['next_location'])
         
         # Refresh progress bar and scene panel (to update map image)
@@ -3700,9 +3771,10 @@ class RowingScenePanel(wx.Panel):
             # Manual override: use the specified location
             self.current_location = self.shared_state.location_override
         else:
-            # Automatic mode: switch based on live cumulative distance using shared MapLogic
-            cumulative_total_distance = self.shared_state.get_cumulative_total_distance()
-            location_info = MapLogic.get_current_location_info(cumulative_total_distance)
+            # Automatic mode: switch based on live cumulative TIME
+            cumulative_total_time = self.shared_state.get_cumulative_total_rowing_time()
+            interval = self.shared_state.settings_manager.get_map_interval()
+            location_info = MapLogic.get_current_location_info_by_time(cumulative_total_time, interval)
             self.current_location = location_info['current_location']
         
         # Update shared_state so LocationProgressPanel can access it
@@ -3722,12 +3794,13 @@ class RowingScenePanel(wx.Panel):
         """Reset the scene"""
         self.background_offset = 0.0  # Reset background scroll
         self.cumulative_distance = 0.0  # Reset distance
-        # Reset location based on override or cumulative distance
+        # Reset location based on override or cumulative time
         if self.shared_state.location_override is not None:
             self.current_location = self.shared_state.location_override
         else:
-            cumulative_total_distance = self.shared_state.get_cumulative_total_distance()
-            location_info = MapLogic.get_current_location_info(cumulative_total_distance)
+            cumulative_total_time = self.shared_state.get_cumulative_total_rowing_time()
+            interval = self.shared_state.settings_manager.get_map_interval()
+            location_info = MapLogic.get_current_location_info_by_time(cumulative_total_time, interval)
             self.current_location = location_info['current_location']
         # Update shared_state
         self.shared_state.current_location = self.current_location
