@@ -285,6 +285,8 @@ class PatientSelectionPage(wx.Panel):
         self.patient_choice = wx.Choice(self.card, size=(400, 50))
         # Increase font size for the dropdown (Choice control font)
         self.patient_choice.SetFont(wx.Font(16, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        self.patient_choice.SetForegroundColour(wx.Colour(33, 37, 41))  # Explicit text color for visibility
+        self.patient_choice.SetBackgroundColour(wx.Colour(255, 255, 255))  # White background
         card_sizer.Add(self.patient_choice, 0, wx.ALIGN_CENTER)
         
         card_sizer.AddSpacer(40)
@@ -303,10 +305,17 @@ class PatientSelectionPage(wx.Panel):
         
         card_sizer.AddSpacer(20)
         
-        # Settings Button
-        self.settings_btn = ModernCard(self.card, "Settings", self.on_settings, enabled=True, font_size=20)
+        # Game Settings Button
+        self.settings_btn = ModernCard(self.card, "Game Settings", self.on_settings, enabled=True, font_size=20)
         self.settings_btn.SetMinSize((300, 60))
         card_sizer.Add(self.settings_btn, 0, wx.ALIGN_CENTER)
+        
+        card_sizer.AddSpacer(20)
+        
+        # Hardware Settings Button
+        self.hardware_settings_btn = ModernCard(self.card, "Hardware Settings", self.on_hardware_settings, enabled=True, font_size=20)
+        self.hardware_settings_btn.SetMinSize((300, 60))
+        card_sizer.Add(self.hardware_settings_btn, 0, wx.ALIGN_CENTER)
         
         card_sizer.AddSpacer(50)
         self.card.SetSizer(card_sizer)
@@ -399,6 +408,11 @@ class PatientSelectionPage(wx.Panel):
         
     def on_settings(self, event):
         dlg = SettingsDialog(self, self.settings_manager)
+        dlg.ShowModal()
+        dlg.Destroy()
+    
+    def on_hardware_settings(self, event):
+        dlg = HardwareSettingsDialog(self, self.settings_manager)
         dlg.ShowModal()
         dlg.Destroy()
 
@@ -505,7 +519,7 @@ class AddPatientDialog(wx.Dialog):
 
 class SettingsDialog(wx.Dialog):
     def __init__(self, parent, settings_manager):
-        super(SettingsDialog, self).__init__(parent, title="Clinician Settings", size=(500, 300))
+        super(SettingsDialog, self).__init__(parent, title="Game Settings", size=(600, 400))
         self.settings_manager = settings_manager
         
         self.SetBackgroundColour(wx.Colour(255, 255, 255))
@@ -513,29 +527,63 @@ class SettingsDialog(wx.Dialog):
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.AddSpacer(20)
         
-        title = wx.StaticText(self, label="Settings")
+        title = wx.StaticText(self, label="Game Settings")
         title.SetFont(wx.Font(24, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        title.SetForegroundColour(wx.Colour(33, 37, 41))  # Explicit text color for visibility
         sizer.Add(title, 0, wx.ALIGN_CENTER | wx.BOTTOM, 30)
         
         # Map Unlock Interval
         map_sizer = wx.BoxSizer(wx.HORIZONTAL)
         map_label = wx.StaticText(self, label="Map Unlock Interval (min):")
         map_label.SetFont(wx.Font(14, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
-        map_sizer.Add(map_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 10)
+        map_label.SetForegroundColour(wx.Colour(33, 37, 41))  # Explicit text color for visibility
+        map_label.SetMinSize((250, -1))
+        map_sizer.Add(map_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 40)
         
         current_interval = self.settings_manager.get_map_interval()
         self.interval_ctrl = wx.SpinCtrl(self, value=str(current_interval), min=1, max=120)
-        map_sizer.Add(self.interval_ctrl, 0, wx.ALIGN_CENTER_VERTICAL)
+        self.interval_ctrl.SetMinSize((150, 35))
+        self.interval_ctrl.SetForegroundColour(wx.Colour(33, 37, 41))  # Explicit text color for visibility
+        map_sizer.Add(self.interval_ctrl, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 40)
         
-        sizer.Add(map_sizer, 0, wx.ALIGN_CENTER | wx.BOTTOM, 40)
+        sizer.Add(map_sizer, 0, wx.EXPAND | wx.BOTTOM, 20)
+        
+        # Button Push Window One Side
+        button_window_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        button_window_label = wx.StaticText(self, label="Button Push Window One Side (mm):")
+        button_window_label.SetFont(wx.Font(14, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        button_window_label.SetForegroundColour(wx.Colour(33, 37, 41))  # Explicit text color for visibility
+        button_window_label.SetMinSize((250, -1))
+        button_window_sizer.Add(button_window_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 40)
+        
+        current_button_window = self.settings_manager.get_button_push_window()
+        self.button_window_ctrl = wx.SpinCtrlDouble(self, value=str(current_button_window), min=0.0, max=500.0, inc=1.0)
+        self.button_window_ctrl.SetDigits(0)
+        self.button_window_ctrl.SetMinSize((150, 35))
+        self.button_window_ctrl.SetForegroundColour(wx.Colour(33, 37, 41))  # Explicit text color for visibility
+        button_window_sizer.Add(self.button_window_ctrl, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 40)
+        
+        sizer.Add(button_window_sizer, 0, wx.EXPAND | wx.BOTTOM, 40)
         
         # Buttons
         btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
         
         cancel_btn = wx.Button(self, wx.ID_CANCEL, "Cancel")
+        cancel_btn.SetForegroundColour(wx.Colour(33, 37, 41))  # Explicit text color for visibility
+        cancel_btn.SetBackgroundColour(wx.Colour(240, 240, 240))  # Light gray background
+        cancel_btn.SetOwnBackgroundColour(wx.Colour(240, 240, 240))  # Ensure background is only on button
+        cancel_btn.SetOwnForegroundColour(wx.Colour(33, 37, 41))  # Force text color
+        cancel_btn.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        cancel_btn.Refresh()
         btn_sizer.Add(cancel_btn, 0, wx.RIGHT, 20)
         
         save_btn = wx.Button(self, label="Save")
+        save_btn.SetForegroundColour(wx.Colour(33, 37, 41))  # Explicit text color for visibility
+        save_btn.SetBackgroundColour(wx.Colour(240, 240, 240))  # Light gray background
+        save_btn.SetOwnBackgroundColour(wx.Colour(240, 240, 240))  # Ensure background is only on button
+        save_btn.SetOwnForegroundColour(wx.Colour(33, 37, 41))  # Force text color
+        save_btn.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        save_btn.Refresh()
         save_btn.Bind(wx.EVT_BUTTON, self.on_save)
         btn_sizer.Add(save_btn, 0)
         
@@ -546,5 +594,172 @@ class SettingsDialog(wx.Dialog):
         
     def on_save(self, event):
         interval = self.interval_ctrl.GetValue()
+        button_window = self.button_window_ctrl.GetValue()
         self.settings_manager.set_map_interval(interval)
+        self.settings_manager.set_button_push_window(button_window)
+        self.EndModal(wx.ID_OK)
+
+
+class HardwareSettingsDialog(wx.Dialog):
+    def __init__(self, parent, settings_manager):
+        super(HardwareSettingsDialog, self).__init__(parent, title="Hardware Settings", size=(600, 650))
+        self.settings_manager = settings_manager
+        
+        self.SetBackgroundColour(wx.Colour(255, 255, 255))
+        
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.AddSpacer(20)
+        
+        title = wx.StaticText(self, label="Hardware Settings")
+        title.SetFont(wx.Font(24, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        title.SetForegroundColour(wx.Colour(33, 37, 41))  # Explicit text color for visibility
+        sizer.Add(title, 0, wx.ALIGN_CENTER | wx.BOTTOM, 30)
+        
+        # Get current hardware settings
+        hw_settings = self.settings_manager.get_hardware_settings()
+        
+        # Dev Number
+        dev_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        dev_label = wx.StaticText(self, label="Dev Number:")
+        dev_label.SetFont(wx.Font(14, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        dev_label.SetForegroundColour(wx.Colour(33, 37, 41))  # Explicit text color for visibility
+        dev_label.SetMinSize((250, -1))
+        dev_sizer.Add(dev_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 40)
+        self.dev_number_ctrl = wx.SpinCtrl(self, value=str(hw_settings.get("dev_number", 1)), min=1, max=10)
+        self.dev_number_ctrl.SetMinSize((150, 35))
+        self.dev_number_ctrl.SetForegroundColour(wx.Colour(33, 37, 41))  # Explicit text color for visibility
+        dev_sizer.Add(self.dev_number_ctrl, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 40)
+        sizer.Add(dev_sizer, 0, wx.EXPAND | wx.BOTTOM, 20)
+        
+        # Voltage [V]
+        voltage_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        voltage_label = wx.StaticText(self, label="Voltage [V]:")
+        voltage_label.SetFont(wx.Font(14, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        voltage_label.SetForegroundColour(wx.Colour(33, 37, 41))  # Explicit text color for visibility
+        voltage_label.SetMinSize((250, -1))
+        voltage_sizer.Add(voltage_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 40)
+        self.voltage_ctrl = wx.SpinCtrlDouble(self, value=str(hw_settings.get("voltage_v", 5.0)), min=0.0, max=10.0, inc=0.1)
+        self.voltage_ctrl.SetDigits(1)
+        self.voltage_ctrl.SetMinSize((150, 35))
+        self.voltage_ctrl.SetForegroundColour(wx.Colour(33, 37, 41))  # Explicit text color for visibility
+        voltage_sizer.Add(self.voltage_ctrl, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 40)
+        sizer.Add(voltage_sizer, 0, wx.EXPAND | wx.BOTTOM, 20)
+        
+        # Left Foot Force Channel
+        left_foot_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        left_foot_label = wx.StaticText(self, label="Left Foot Force Channel:")
+        left_foot_label.SetFont(wx.Font(14, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        left_foot_label.SetForegroundColour(wx.Colour(33, 37, 41))  # Explicit text color for visibility
+        left_foot_label.SetMinSize((250, -1))
+        left_foot_sizer.Add(left_foot_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 40)
+        self.left_foot_ctrl = wx.SpinCtrl(self, value=str(hw_settings.get("left_foot_force_channel", 16)), min=0, max=31)
+        self.left_foot_ctrl.SetMinSize((150, 35))
+        self.left_foot_ctrl.SetForegroundColour(wx.Colour(33, 37, 41))  # Explicit text color for visibility
+        left_foot_sizer.Add(self.left_foot_ctrl, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 40)
+        sizer.Add(left_foot_sizer, 0, wx.EXPAND | wx.BOTTOM, 20)
+        
+        # Right Foot Force Channel
+        right_foot_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        right_foot_label = wx.StaticText(self, label="Right Foot Force Channel:")
+        right_foot_label.SetFont(wx.Font(14, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        right_foot_label.SetForegroundColour(wx.Colour(33, 37, 41))  # Explicit text color for visibility
+        right_foot_label.SetMinSize((250, -1))
+        right_foot_sizer.Add(right_foot_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 40)
+        self.right_foot_ctrl = wx.SpinCtrl(self, value=str(hw_settings.get("right_foot_force_channel", 18)), min=0, max=31)
+        self.right_foot_ctrl.SetMinSize((150, 35))
+        self.right_foot_ctrl.SetForegroundColour(wx.Colour(33, 37, 41))  # Explicit text color for visibility
+        right_foot_sizer.Add(self.right_foot_ctrl, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 40)
+        sizer.Add(right_foot_sizer, 0, wx.EXPAND | wx.BOTTOM, 20)
+        
+        # Handle Force Channel
+        handle_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        handle_label = wx.StaticText(self, label="Handle Force Channel:")
+        handle_label.SetFont(wx.Font(14, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        handle_label.SetForegroundColour(wx.Colour(33, 37, 41))  # Explicit text color for visibility
+        handle_label.SetMinSize((250, -1))
+        handle_sizer.Add(handle_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 40)
+        self.handle_ctrl = wx.SpinCtrl(self, value=str(hw_settings.get("handle_force_channel", 20)), min=0, max=31)
+        self.handle_ctrl.SetMinSize((150, 35))
+        self.handle_ctrl.SetForegroundColour(wx.Colour(33, 37, 41))  # Explicit text color for visibility
+        handle_sizer.Add(self.handle_ctrl, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 40)
+        sizer.Add(handle_sizer, 0, wx.EXPAND | wx.BOTTOM, 20)
+        
+        # Front Potentiometer Channel
+        front_pot_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        front_pot_label = wx.StaticText(self, label="Front Potentiometer Channel:")
+        front_pot_label.SetFont(wx.Font(14, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        front_pot_label.SetForegroundColour(wx.Colour(33, 37, 41))  # Explicit text color for visibility
+        front_pot_label.SetMinSize((250, -1))
+        front_pot_sizer.Add(front_pot_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 40)
+        self.front_pot_ctrl = wx.SpinCtrl(self, value=str(hw_settings.get("front_potentiometer_channel", 21)), min=0, max=31)
+        self.front_pot_ctrl.SetMinSize((150, 35))
+        self.front_pot_ctrl.SetForegroundColour(wx.Colour(33, 37, 41))  # Explicit text color for visibility
+        front_pot_sizer.Add(self.front_pot_ctrl, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 40)
+        sizer.Add(front_pot_sizer, 0, wx.EXPAND | wx.BOTTOM, 20)
+        
+        # Back Potentiometer Channel
+        back_pot_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        back_pot_label = wx.StaticText(self, label="Back Potentiometer Channel:")
+        back_pot_label.SetFont(wx.Font(14, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        back_pot_label.SetForegroundColour(wx.Colour(33, 37, 41))  # Explicit text color for visibility
+        back_pot_label.SetMinSize((250, -1))
+        back_pot_sizer.Add(back_pot_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 40)
+        self.back_pot_ctrl = wx.SpinCtrl(self, value=str(hw_settings.get("back_potentiometer_channel", 22)), min=0, max=31)
+        self.back_pot_ctrl.SetMinSize((150, 35))
+        self.back_pot_ctrl.SetForegroundColour(wx.Colour(33, 37, 41))  # Explicit text color for visibility
+        back_pot_sizer.Add(self.back_pot_ctrl, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 40)
+        sizer.Add(back_pot_sizer, 0, wx.EXPAND | wx.BOTTOM, 20)
+        
+        # Buttons
+        btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        
+        cancel_btn = wx.Button(self, wx.ID_CANCEL, "Cancel")
+        cancel_btn.SetMinSize((100, 40))
+        cancel_btn.SetForegroundColour(wx.Colour(33, 37, 41))  # Explicit text color for visibility
+        cancel_btn.SetBackgroundColour(wx.Colour(240, 240, 240))  # Light gray background
+        cancel_btn.SetOwnBackgroundColour(wx.Colour(240, 240, 240))  # Ensure background is only on button
+        cancel_btn.SetOwnForegroundColour(wx.Colour(33, 37, 41))  # Force text color
+        cancel_btn.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        cancel_btn.Refresh()
+        btn_sizer.Add(cancel_btn, 0, wx.RIGHT, 20)
+        
+        save_btn = wx.Button(self, label="Save")
+        save_btn.SetMinSize((100, 40))
+        save_btn.SetForegroundColour(wx.Colour(33, 37, 41))  # Explicit text color for visibility
+        save_btn.SetBackgroundColour(wx.Colour(240, 240, 240))  # Light gray background
+        save_btn.SetOwnBackgroundColour(wx.Colour(240, 240, 240))  # Ensure background is only on button
+        save_btn.SetOwnForegroundColour(wx.Colour(33, 37, 41))  # Force text color
+        save_btn.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        save_btn.Refresh()
+        save_btn.Bind(wx.EVT_BUTTON, self.on_save)
+        btn_sizer.Add(save_btn, 0)
+        
+        sizer.Add(btn_sizer, 0, wx.ALIGN_CENTER | wx.BOTTOM, 20)
+        
+        self.SetSizer(sizer)
+        self.CenterOnParent()
+        
+    def on_save(self, event):
+        # Get values from controls
+        dev_number = self.dev_number_ctrl.GetValue()
+        voltage = self.voltage_ctrl.GetValue()
+        left_foot = self.left_foot_ctrl.GetValue()
+        right_foot = self.right_foot_ctrl.GetValue()
+        handle = self.handle_ctrl.GetValue()
+        front_pot = self.front_pot_ctrl.GetValue()
+        back_pot = self.back_pot_ctrl.GetValue()
+        
+        # Build hardware settings dictionary
+        hardware_settings = {
+            "dev_number": int(dev_number),
+            "voltage_v": float(voltage),
+            "left_foot_force_channel": int(left_foot),
+            "right_foot_force_channel": int(right_foot),
+            "handle_force_channel": int(handle),
+            "front_potentiometer_channel": int(front_pot),
+            "back_potentiometer_channel": int(back_pot)
+        }
+        
+        # Save settings
+        self.settings_manager.set_hardware_settings(hardware_settings)
         self.EndModal(wx.ID_OK)

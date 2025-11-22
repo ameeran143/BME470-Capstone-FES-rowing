@@ -30,10 +30,10 @@
     "password_salt": "6d2b8d91fea77f3b93435c9ff1e23273",
     "password_hash": "dbf5c205b4f93823a5a65cf9e55622633261bd8c4efef65c9d1288a7d776a84d",
     "created_date": "2025-11-19T14:20:19.949291",
-    "total_sessions": 16,
+    "total_sessions": 21,
     "total_time": 0,
     "best_stroke_rate": 0,
-    "cumulative_distance_m": 74.19,
+    "cumulative_distance_m": 83.36,
     "achievements": {
       "first_session": true,
       "ten_sessions": true,
@@ -41,13 +41,13 @@
       "endurance_master": false,
       "speed_demon": false,
       "week_warrior": true,
-      "monthly_milestone": false,
+      "monthly_milestone": true,
       "consistency_king": true
     },
     "progress_level": 1,
     "last_session": null,
     "longest_distance": 16.43,
-    "cumulative_rowing_time_seconds": 0.0
+    "cumulative_rowing_time_seconds": 35.879999999999995
   },
   "test2": {
     "username": "test2",

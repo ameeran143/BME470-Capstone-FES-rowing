@@ -191,8 +191,9 @@ class SharedStats:
         self.button_press_accuracies = []  # List of press accuracies when button pressed (0-100%)
         self.button_release_accuracies = []  # List of release accuracies when button released (0-100%)
         self.button_combined_accuracies = []  # List of combined (press+release)/2 accuracies
-        self.button_press_window_mm = 160.0  # Window size in mm (±160mm from optimal position)
-        self.button_press_perfect_zone_mm = 70.0  # "Perfect" zone around optimal (±70mm = 100% accuracy)
+        # Button push window will be loaded from settings
+        self.button_press_window_mm = 160.0  # Window size in mm (±160mm from optimal position) - will be updated from settings
+        self.button_press_perfect_zone_mm = 70.0  # "Perfect" zone around optimal (±70mm = 100% accuracy) - will be updated from settings
         
         # Button state tracking for press-hold-release mechanism
         self.button_currently_held = False  # True when button is currently held down
@@ -226,6 +227,10 @@ class SharedStats:
         self.ensure_cumulative_distance_loaded()
         
         self.settings_manager = SettingsManager()
+        
+        # Load button push window from settings (one side in mm)
+        button_push_window_one_side = self.settings_manager.get_button_push_window()
+        self.button_press_perfect_zone_mm = button_push_window_one_side  # One side value
         
         # Hardware testing - Auto-detect OS
         import platform
@@ -286,21 +291,31 @@ class SharedStats:
             return False  # Hardware not supported on macOS
         
         try:
+            # Get hardware settings
+            hw_settings = self.settings_manager.get_hardware_settings()
+            dev_number = hw_settings.get("dev_number", 1)
+            left_foot_ch = hw_settings.get("left_foot_force_channel", 16)
+            right_foot_ch = hw_settings.get("right_foot_force_channel", 18)
+            handle_ch = hw_settings.get("handle_force_channel", 20)
+            front_pot_ch = hw_settings.get("front_potentiometer_channel", 21)
+            back_pot_ch = hw_settings.get("back_potentiometer_channel", 22)
+            voltage = hw_settings.get("voltage_v", 5.0)
+            
             with nidaqmx.Task() as task:
-                # Test with the new channel mapping - add each channel individually
-                task.ai_channels.add_ai_voltage_chan("Dev1/ai16",
+                # Test with channel mapping from settings
+                task.ai_channels.add_ai_voltage_chan(f"Dev{dev_number}/ai{left_foot_ch}",
                                                      terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
                                                      min_val=0.0, max_val=10.0)
-                task.ai_channels.add_ai_voltage_chan("Dev1/ai18",
+                task.ai_channels.add_ai_voltage_chan(f"Dev{dev_number}/ai{right_foot_ch}",
                                                      terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
                                                      min_val=0.0, max_val=10.0)
-                task.ai_channels.add_ai_voltage_chan("Dev1/ai20",
+                task.ai_channels.add_ai_voltage_chan(f"Dev{dev_number}/ai{handle_ch}",
                                                      terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
                                                      min_val=0.0, max_val=10.0)
-                task.ai_channels.add_ai_voltage_chan("Dev1/ai21",
+                task.ai_channels.add_ai_voltage_chan(f"Dev{dev_number}/ai{front_pot_ch}",
                                                      terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
                                                      min_val=0.0, max_val=10.0)
-                task.ai_channels.add_ai_voltage_chan("Dev1/ai22",
+                task.ai_channels.add_ai_voltage_chan(f"Dev{dev_number}/ai{back_pot_ch}",
                                                      terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
                                                      min_val=0.0, max_val=10.0)
                 return True
@@ -997,16 +1012,24 @@ class SharedStats:
             seat_position_mm = seat_position_voltage * self.hardware_volts_to_mm_factor
             return handle_force_N, handle_position_mm, seat_position_mm
 
-    @staticmethod
-    def _convert_handle_force_voltage(voltage):
+    def _convert_handle_force_voltage(self, voltage):
         """Convert handle force sensor voltage to force (N) using calibration."""
 
         #this conversoin is done by the following equation
         #recorded voltage / (sensitivity*excitation voltage ) * rated capacity mass (kg) * gravity (m/s^2)
-        #note that sensitivity is 2.0 mv/V and excitation voltage is 5.0 V, rated capacity mass is 250 kg and gravity is 9.81 m/s^2
+        #note that sensitivity is 2.0 mv/V and excitation voltage is from settings, rated capacity mass is 250 kg and gravity is 9.81 m/s^2
+        #assume amplification of 1000 times
         try:
+            # Get voltage from hardware settings
+            excitation_voltage = self.settings_manager.get_hardware_setting("voltage_v")
+            return (voltage / (2.0 * excitation_voltage) * 250.0 * 9.81)
+        except Exception as e:
+            print(f"Error converting handle force voltage: {voltage}, error: {e}")
+            print(f"Sensitivity: 2.0 mv/V")
+            print(f"Rated capacity mass: 250 kg")
+            print(f"Gravity: 9.81 m/s^2")
+            # Fallback to default voltage if settings unavailable
             return (voltage / (2.0 * 5.0)) * 250.0 * 9.81
-        except Exception:
             return voltage
 
     def plot_anc_data(self, src_path):
@@ -1187,14 +1210,32 @@ class SharedStats:
                     power_val = self.anc_power_series[current_idx]
                     self.temp_power.append(power_val)
                     self.avg_power.append(sum(self.temp_power)/len(self.temp_power))
+                    # Print force and power values
+                    current_force = handle_force
                 elif len(self.handle_force) > 1 and len(self.handle_position) > 1 and len(self.temp_time) > 1:
-                    self.temp_power.append(((self.handle_force[-1]+self.handle_force[-2])/2)*abs(self.handle_position[-1]-self.handle_position[-2])/(self.temp_time[-1]-self.temp_time[-2]))
+                    avg_force = (self.handle_force[-1]+self.handle_force[-2])/2
+                    delta_handle = abs(self.handle_position[-1]-self.handle_position[-2])
+                    dt = self.temp_time[-1]-self.temp_time[-2]
+                    power_val = avg_force * delta_handle / dt if dt > 0 else 0
+                    self.temp_power.append(power_val)
                     self.avg_power.append(sum(self.temp_power)/len(self.temp_power))
+                    # Print force and power values
+                    print(f"CSV Playback (calc) - Force: {avg_force:.2f} N, Delta Handle: {delta_handle:.2f} mm, dt: {dt:.3f} s, Power: {power_val:.2f} W, Avg Power: {self.avg_power[-1]:.2f} W")
                 self.hardware_connected = False
                 return
             except Exception as e:
                 print(f"⚠️  CSV playback error: {e}")
-                # Don't disable playback mode - just skip this update cycle
+                import traceback
+                traceback.print_exc()
+                # Don't disable playback mode - try to continue with existing data
+                # Calculate power from existing data if available
+                if len(self.handle_force) > 1 and len(self.handle_position) > 1 and len(self.temp_time) > 1:
+                    try:
+                        self.temp_power.append(((self.handle_force[-1]+self.handle_force[-2])/2)*abs(self.handle_position[-1]-self.handle_position[-2])/(self.temp_time[-1]-self.temp_time[-2]))
+                        self.avg_power.append(sum(self.temp_power)/len(self.temp_power))
+                    except:
+                        pass
+                # Continue to allow other updates (score, misses, etc.)
 
         # Hardware sensor data collection (Windows/Linux only)
         if not self.is_mac and self.hardware_mode:
@@ -1295,16 +1336,58 @@ class SharedStats:
                         power_val = avg_force * delta_handle / dt / 1000.0  # W (divide by 1000 to convert mm->m)
                         self.temp_power.append(power_val)
                         self.avg_power.append(sum(self.temp_power)/len(self.temp_power))
+                        # Print force and power values
+                        print(f"Hardware - Force: {avg_force:.2f} N, Delta Handle: {delta_handle:.2f} mm, dt: {dt:.3f} s, Power: {power_val:.2f} W, Avg Power: {self.avg_power[-1]:.2f} W")
                     
                 return  # Exit early if hardware read was successful
             except Exception as e:
                 print(f"❌ Error reading from sensors: {e}")
+                import traceback
+                traceback.print_exc()
                 self.hardware_connected = False
-                return  # Do not fall back to simulation
+                # Don't return early - allow fallback power calculation from existing data
+                # Continue to allow power calculation from existing sensor data
         
         # No simulation mode - only hardware or CSV playback
         # If we reach here, no valid data source is available
         # (This is normal during initialization - mode detection happens in reset_game)
+        
+        # Try to calculate power from existing data if we have sensor readings but no mode is active
+        # This ensures power updates even if mode detection failed or data source is unavailable
+        if len(self.handle_force) > 1 and len(self.handle_position) > 1:
+            if not hasattr(self, 'temp_time') or not self.temp_time or len(self.temp_time) < 2:
+                # Initialize temp_time if missing
+                if not hasattr(self, 'temp_time'):
+                    self.temp_time = []
+                current_time = time.time()
+                if len(self.temp_time) == 0:
+                    self.temp_time.append(current_time)
+                if len(self.temp_time) == 1:
+                    self.temp_time.append(current_time)
+            
+            if len(self.temp_time) > 1 and len(self.handle_force) > 1 and len(self.handle_position) > 1:
+                try:
+                    dt = self.temp_time[-1] - self.temp_time[-2] if len(self.temp_time) > 1 else 0.1
+                    if dt > 0:
+                        avg_force = (self.handle_force[-1] + self.handle_force[-2]) / 2.0  # N
+                        delta_handle = abs(self.handle_position[-1] - self.handle_position[-2])  # mm
+                        power_val = avg_force * delta_handle / dt / 1000.0  # W (divide by 1000 to convert mm->m)
+                        if not self.temp_power or len(self.temp_power) == 0:
+                            self.temp_power = []
+                        self.temp_power.append(power_val)
+                        # Keep only last 100 power values to prevent memory growth
+                        if len(self.temp_power) > 100:
+                            self.temp_power = self.temp_power[-100:]
+                        if not self.avg_power or len(self.avg_power) == 0:
+                            self.avg_power = []
+                        self.avg_power.append(sum(self.temp_power)/len(self.temp_power))
+                        # Keep only last 100 avg power values
+                        if len(self.avg_power) > 100:
+                            self.avg_power = self.avg_power[-100:]
+                        # Print force and power values
+                        print(f"Fallback - Force: {avg_force:.2f} N, Delta Handle: {delta_handle:.2f} mm, dt: {dt:.3f} s, Power: {power_val:.2f} W, Avg Power: {self.avg_power[-1]:.2f} W")
+                except Exception as e:
+                    print(f"Power calculation fallback error: {e}")
         
         # update score and misses
         if self.converted_seat_position:
@@ -2053,17 +2136,22 @@ class GamePage(wx.Panel):
 
     def on_timer(self, event):
         """Main timer callback - updates UI with current state (no simulation)"""
-        # Update stats (reads from hardware or CSV playback)
-        self.shared_state.update_stats()
-        
-        # Calculate distance based on current data
-        self.shared_state.calculate_distance()
-        
-        # Update all UI panels
-        self.stats_panel.update_stats()
-        self.location_progress_panel.update_display()
-        self.rowing_scene_panel.update_scene()
-        self.fes_indicator_panel.update_indicator()
+        try:
+            # Update stats (reads from hardware or CSV playback)
+            self.shared_state.update_stats()
+            
+            # Calculate distance based on current data
+            self.shared_state.calculate_distance()
+            
+            # Update all UI panels
+            self.stats_panel.update_stats()
+            self.location_progress_panel.update_display()
+            self.rowing_scene_panel.update_scene()
+            self.fes_indicator_panel.update_indicator()
+        except Exception as e:
+            print(f"Error in timer callback: {e}")
+            import traceback
+            traceback.print_exc()
     
     def reset_game(self):
         # Re-setup button press/release detection
@@ -2078,26 +2166,36 @@ class GamePage(wx.Panel):
             # Initialize hardware task if in hardware mode (after mode detection)
             if self.shared_state.hardware_mode and self.shared_state.hardware_task is None:
                 try:
+                    # Get hardware settings
+                    hw_settings = self.shared_state.settings_manager.get_hardware_settings()
+                    dev_number = hw_settings.get("dev_number", 1)
+                    left_foot_ch = hw_settings.get("left_foot_force_channel", 16)
+                    right_foot_ch = hw_settings.get("right_foot_force_channel", 18)
+                    handle_ch = hw_settings.get("handle_force_channel", 20)
+                    front_pot_ch = hw_settings.get("front_potentiometer_channel", 21)
+                    back_pot_ch = hw_settings.get("back_potentiometer_channel", 22)
+                    voltage = hw_settings.get("voltage_v", 5.0)
+                    
                     self.shared_state.hardware_task = nidaqmx.Task()
-                    # Configure channels with RSE terminal configuration and 0-10V range (matching hardware_test_safe.py)
-                    self.shared_state.hardware_task.ai_channels.add_ai_voltage_chan("Dev1/ai16",
+                    # Configure channels with RSE terminal configuration and 0-10V range
+                    self.shared_state.hardware_task.ai_channels.add_ai_voltage_chan(f"Dev{dev_number}/ai{left_foot_ch}",
                                                                                    terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
                                                                                    min_val=0.0, max_val=10.0)   # Left Foot Force
-                    self.shared_state.hardware_task.ai_channels.add_ai_voltage_chan("Dev1/ai18",
+                    self.shared_state.hardware_task.ai_channels.add_ai_voltage_chan(f"Dev{dev_number}/ai{right_foot_ch}",
                                                                                    terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
                                                                                    min_val=0.0, max_val=10.0)   # Right Foot Force
-                    self.shared_state.hardware_task.ai_channels.add_ai_voltage_chan("Dev1/ai20",
+                    self.shared_state.hardware_task.ai_channels.add_ai_voltage_chan(f"Dev{dev_number}/ai{handle_ch}",
                                                                                    terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
                                                                                    min_val=0.0, max_val=10.0)   # Handle Force
-                    self.shared_state.hardware_task.ai_channels.add_ai_voltage_chan("Dev1/ai21",
+                    self.shared_state.hardware_task.ai_channels.add_ai_voltage_chan(f"Dev{dev_number}/ai{front_pot_ch}",
                                                                                    terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
                                                                                    min_val=0.0, max_val=10.0)   # Front Potentiometer (Handle Position)
-                    self.shared_state.hardware_task.ai_channels.add_ai_voltage_chan("Dev1/ai22",
+                    self.shared_state.hardware_task.ai_channels.add_ai_voltage_chan(f"Dev{dev_number}/ai{back_pot_ch}",
                                                                                    terminal_config=nidaqmx.constants.TerminalConfiguration.RSE,
                                                                                    min_val=0.0, max_val=10.0)   # Back Potentiometer (Seat Position)
                     # Don't use CONTINUOUS mode - read on-demand to avoid blocking UI timer
                     # This matches hardware_test_safe.py approach
-                    print("Hardware task initialized successfully")
+                    print(f"Hardware task initialized successfully with Dev{dev_number}, voltage={voltage}V")
                 except Exception as e:
                     print(f"Failed to initialize hardware task: {e}")
                     self.shared_state.hardware_mode = False

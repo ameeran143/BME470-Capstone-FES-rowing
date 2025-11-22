@@ -1,3 +1,13 @@
 {
-  "map_unlock_interval_minutes": 1
+  "map_unlock_interval_minutes": 1,
+  "hardware_settings": {
+    "dev_number": 1,
+    "voltage_v": 5.0,
+    "left_foot_force_channel": 16,
+    "right_foot_force_channel": 18,
+    "handle_force_channel": 20,
+    "front_potentiometer_channel": 21,
+    "back_potentiometer_channel": 22
+  },
+  "button_push_window_mm": 70.0
 }
