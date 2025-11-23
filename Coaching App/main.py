@@ -10,6 +10,7 @@ from dashboard import DashboardPage
 from tutorial import GameTutorialPage
 from title_page import TitlePage, ClinicianLoginPage, PatientSelectionPage
 
+REQUIRE_LOGIN = True  # Configuration: Set toif self.verify_password(password, salt, stored_hash): True to require login
 class RowingApp(wx.App):
     def OnInit(self):
         self.frame = MainFrame(None, title="FES-Rowing App")
@@ -76,12 +77,32 @@ class MainFrame(wx.Frame):
         self.Layout()
 
     def switch_to_login_page(self):
+        '''
         self.current_panel.Hide()
         self.clinician_login_page.Show()
         self.current_panel = self.clinician_login_page
         self.Refresh()
-        self.Layout()
-        
+        self.Layout()'''
+
+        """
+        Show user login dialog (from DashboardPage), 
+        not clinician login.
+        """
+        if not REQUIRE_LOGIN:
+            # Hide current panel
+            self.switch_to_dashboard()
+            return
+        else:
+            dlg = self.dashboard_page.show_login_dialog()
+
+        if dlg == wx.ID_OK:
+            # user successfully logged in
+            self.dashboard_page.refresh_dashboard()
+            self.switch_to_dashboard()
+        else:
+            # return to title page
+            self.switch_to_title_page()
+
     def switch_to_patient_selection_page(self):
         self.current_panel.Hide()
         # Refresh list in case new patients were added externally or logic changed
@@ -102,10 +123,17 @@ class MainFrame(wx.Frame):
         """Switch to dashboard page"""
         self.current_panel.Hide()
         # Hide summary page if it exists
-        if self.summary_page is not None:
+        if self.summary_page is not None and self.dashboard_page.is_logged_in:
             self.summary_page.Hide()
-        
+
+        # REQUIRE_LOGIN check happens here
+        if REQUIRE_LOGIN and not self.dashboard_page.is_logged_in:
+            result = self.dashboard_page.require_login()
+            if not result:
+                self.switch_to_title_page()
+                return
         # Refresh dashboard data before showing (to update stats after sessions)
+        self.title_page.Hide()
         self.dashboard_page.refresh_dashboard()
         
         self.dashboard_page.Show()
@@ -198,6 +226,14 @@ class MainFrame(wx.Frame):
         self.current_panel = self.game_tutorial_page
         self.Refresh()
         self.Layout()
+    
+    def switch_to_login_page_clinician(self):
+        self.current_panel.Hide()
+        self.clinician_login_page.Show()
+        self.current_panel = self.clinician_login_page
+        self.Refresh()
+        self.Layout()
+
 
     def OnClose(self, event):
         """Handle application close event - cleanup hardware resources"""

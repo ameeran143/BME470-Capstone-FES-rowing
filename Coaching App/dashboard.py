@@ -15,9 +15,9 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from map_logic import MapLogic
 from settings_manager import SettingsManager
-
+#from main import REQUIRE_LOGIN
 # Configuration: Set to False to skip login and use demo account automatically
-REQUIRE_LOGIN = False
+#REQUIRE_LOGIN = False
 
 class AccountManager:
     """Manages user accounts and authentication"""
@@ -139,15 +139,23 @@ class AccountManager:
             return False, "Invalid username"
         
         user_data = self.accounts[username]
-        # If account has no password (patient), allow login without it
-        if not user_data.get("password"):
-            return True, user_data
-            
-        # Simple string comparison
-        if user_data.get("password") == password:
-            return True, user_data
+
+        if not "password_salt" in user_data or not "password_hash" in user_data:
+            if not user_data.get("password") : # If account has no password (patient), allow login without it
+                return True, user_data
+            elif user_data.get("password") == password: # Simple string comparison
+                return True, user_data
+            else:
+                return False, "Invalid password"
         else:
-            return False, "Invalid password"
+            salt = user_data["password_salt"]
+            stored_hash = user_data["password_hash"]
+            if self.verify_password(password, salt, stored_hash):
+                return True, user_data
+            else:
+                return False, "Invalid password"
+        # if account has password, verify it (some accounts have plain text passwords and some have hashed)     
+        
 
     def authenticate_clinician(self, username, password):
         """Authenticate clinician login"""
@@ -163,6 +171,17 @@ class AccountManager:
         else:
             return False, "Invalid username or password"
 
+    def hash_password(self, password):
+        """Hash password with salt"""
+        salt = secrets.token_hex(16)
+        password_hash = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt.encode('utf-8'), 100000)
+        return salt, password_hash.hex()
+    
+    def verify_password(self, password, salt, stored_hash):
+        """Verify password against stored hash"""
+        password_hash = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt.encode('utf-8'), 100000)
+        return password_hash.hex() == stored_hash
+    
     def get_all_patients(self):
         """Get list of all patients (users)"""
         patients = []
@@ -367,7 +386,7 @@ class LoginDialog(wx.Dialog):
         demo_container.Add(demo_info, 0, wx.ALIGN_CENTER)
         demo_container.AddStretchSpacer()
         main_sizer.Add(demo_container, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 30)
-        
+
         # Bottom spacer (reduced)
         main_sizer.AddSpacer(30)
         
@@ -529,7 +548,6 @@ class LoginDialog(wx.Dialog):
             self.error_label.SetForegroundColour(wx.Colour(40, 167, 69))
         else:
             self.show_error(message)
-    
     
 class ModernCard(wx.Panel):
     """A modern card panel with shadow effect and hover interaction"""
@@ -1482,19 +1500,22 @@ class DashboardPage(wx.Panel):
         self.user_data = None
         self.is_logged_in = False
         self.current_username = None
-        
+        self.layout_created = False
         # Create demo account for demo if no accounts exist
         self.create_demo_account()
-        
+        from main import REQUIRE_LOGIN
+        self.REQUIRE_LOGIN = REQUIRE_LOGIN
         # Check if login is required
         print(f"REQUIRE_LOGIN is set to: {REQUIRE_LOGIN}")  # Debug print
+        '''
         if REQUIRE_LOGIN:
             # Require login before showing dashboard
             if not self.require_login():
                 # If login was cancelled, show empty dashboard
                 self.create_empty_layout()
                 return
-        else:
+        '''
+        if not REQUIRE_LOGIN:
             # Skip login and automatically use demo account
             self.current_username = "demo"
             self.is_logged_in = True
@@ -1528,24 +1549,27 @@ class DashboardPage(wx.Panel):
         
         # Load session data for the logged-in user (this also updates achievements and statistics)
         # update_achievements_from_sessions() is called inside load_user_session_data() and saves to JSON
-        self.session_data = self.load_user_session_data(self.current_username)
+        #self.session_data = self.load_user_session_data(self.current_username)
         
         # Reload user account data (achievements and statistics have been updated and saved)
-        if self.current_username in self.account_manager.accounts:
-            self.user_data = self.account_manager.accounts[self.current_username].copy()
+        #if self.current_username in self.account_manager.accounts:
+            #self.user_data = self.account_manager.accounts[self.current_username].copy()
         
         # Create the dashboard layout
-        self.create_layout()
+        #self.create_layout()
     
     def refresh_dashboard(self):
         """Refresh dashboard data and update all cards - called when navigating to dashboard"""
-        if not self.is_logged_in or not self.current_username:
+        if not self.current_username: #not self.is_logged_in or not self.current_username:
             return
-        
+       
         # CRITICAL: Reload accounts from file to ensure we have the latest data (including newly created accounts)
         # This fixes the issue where new accounts created by LoginPage aren't visible to DashboardPage
         self.account_manager.accounts = self.account_manager.load_accounts()
-        
+        self.session_data = self.load_user_session_data(self.current_username)
+        if not self.layout_created:
+            self.create_layout()
+            self.layout_created = True
         # Update SharedStats with the current username (in case it changed)
         parent = self.GetParent()
         if hasattr(parent, 'shared_state') and hasattr(parent.shared_state, 'set_user_name'):
@@ -1553,7 +1577,7 @@ class DashboardPage(wx.Panel):
         
         # Reload session data for the logged-in user (this also updates achievements and statistics)
         # update_achievements_from_sessions() is called inside load_user_session_data() and saves to JSON
-        self.session_data = self.load_user_session_data(self.current_username)
+        
         
         # Reload user account data (achievements and statistics have been updated and saved)
         if self.current_username in self.account_manager.accounts:
@@ -1875,6 +1899,22 @@ class DashboardPage(wx.Panel):
         else:
             login_dialog.Destroy()
             return False
+    def show_login_dialog(self):
+        dlg = LoginDialog(self, self.account_manager)
+        result = dlg.ShowModal()
+
+        if result == wx.ID_OK:
+            self.user_data = dlg.user_data
+            self.current_username = self.user_data["username"]
+            self.is_logged_in = True
+
+            # Update shared state
+            parent = self.GetParent()
+            if hasattr(parent, 'shared_state'):
+                parent.shared_state.set_user_name(self.current_username)
+
+        dlg.Destroy()
+        return result
     
     def update_start_page_logout_button(self):
         """Update logout button visibility on start page"""

@@ -46,7 +46,20 @@ class TitlePage(wx.Panel):
         button_container.Add(self.start_button, 0, wx.ALIGN_CENTER)
         button_container.AddStretchSpacer()
         
-        main_sizer.Add(button_container, 0, wx.EXPAND | wx.BOTTOM, 100)
+        main_sizer.Add(button_container, 0, wx.EXPAND | wx.BOTTOM, 20)
+        # Clinician Button
+        clinician_container = wx.BoxSizer(wx.HORIZONTAL)
+        clinician_container.AddStretchSpacer()
+        self.clinician_link = wx.StaticText(self, label="Clinician Login")
+        self.clinician_link.SetFont(wx.Font(14, wx.FONTFAMILY_DEFAULT,
+                                        wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        self.clinician_link.SetForegroundColour(wx.Colour(0, 102, 204))
+        self.clinician_link.SetCursor(wx.Cursor(wx.CURSOR_HAND))
+        self.clinician_link.Bind(wx.EVT_LEFT_DOWN, self.on_clinician_start)
+        clinician_container.Add(self.clinician_link, 0, wx.ALIGN_CENTER_VERTICAL)
+
+        clinician_container.AddStretchSpacer()
+        main_sizer.Add(clinician_container, 0, wx.EXPAND | wx.BOTTOM, 100)
         
         self.SetSizer(main_sizer)
         
@@ -54,6 +67,9 @@ class TitlePage(wx.Panel):
         parent = self.GetParent()
         parent.switch_to_login_page()
 
+    def on_clinician_start(self, event):
+        parent = self.GetParent()
+        parent.switch_to_login_page_clinician()
 
 class ClinicianLoginPage(wx.Panel):
     """Full screen login page for Clinicians"""
@@ -254,7 +270,7 @@ class PatientSelectionPage(wx.Panel):
         self.SetBackgroundColour(wx.Colour(248, 249, 250))
         
         main_sizer = wx.BoxSizer(wx.VERTICAL)
-        main_sizer.AddSpacer(60)
+        main_sizer.AddSpacer(50)
         
         # Title
         self.title_label = wx.StaticText(self, label="Configuration")
@@ -263,7 +279,7 @@ class PatientSelectionPage(wx.Panel):
         self.title_label.SetForegroundColour(wx.Colour(33, 37, 41))
         main_sizer.Add(self.title_label, 0, wx.ALIGN_CENTER | wx.ALL, 20)
         
-        main_sizer.AddSpacer(40)
+        main_sizer.AddSpacer(30)
         
         # Card container
         self.card = wx.Panel(self)
