@@ -10,7 +10,7 @@ from dashboard import DashboardPage
 from tutorial import GameTutorialPage
 from title_page import TitlePage, ClinicianLoginPage, PatientSelectionPage
 
-REQUIRE_LOGIN = True  # Configuration: Set toif self.verify_password(password, salt, stored_hash): True to require login
+REQUIRE_LOGIN = False  # Configuration: Set toif self.verify_password(password, salt, stored_hash): True to require login
 class RowingApp(wx.App):
     def OnInit(self):
         self.frame = MainFrame(None, title="FES-Rowing App")
