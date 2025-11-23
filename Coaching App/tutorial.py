@@ -343,7 +343,7 @@ class TutorialPingPongFES(wx.Panel):
 
         self.timer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self.on_timer)
-        self.timer.Start(20)
+        self.timer.Start(80)
         
         # Bind to window close/destroy events to clean up timer
         self.Bind(wx.EVT_WINDOW_DESTROY, self.on_destroy)

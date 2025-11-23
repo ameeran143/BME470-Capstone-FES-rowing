@@ -241,6 +241,12 @@ class ClinicianLoginPage(wx.Panel):
         """Back to title screen"""
         parent = self.GetParent()
         parent.switch_to_title_page()
+    
+    def clear_fields(self):
+        """Clear username and password fields"""
+        self.login_username.SetValue("")
+        self.login_password.SetValue("")
+        self.hide_error()
 
 
 class PatientSelectionPage(wx.Panel):
@@ -550,7 +556,7 @@ class SettingsDialog(wx.Dialog):
         
         # Button Push Window One Side
         button_window_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        button_window_label = wx.StaticText(self, label="Button Push Window One Side (mm):")
+        button_window_label = wx.StaticText(self, label="Button Push Window\nOne Side (mm):")
         button_window_label.SetFont(wx.Font(14, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         button_window_label.SetForegroundColour(wx.Colour(33, 37, 41))  # Explicit text color for visibility
         button_window_label.SetMinSize((250, -1))

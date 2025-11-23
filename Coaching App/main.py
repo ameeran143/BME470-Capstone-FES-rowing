@@ -77,6 +77,8 @@ class MainFrame(wx.Frame):
 
     def switch_to_login_page(self):
         self.current_panel.Hide()
+        # Clear login fields when returning to login page
+        self.clinician_login_page.clear_fields()
         self.clinician_login_page.Show()
         self.current_panel = self.clinician_login_page
         self.Refresh()

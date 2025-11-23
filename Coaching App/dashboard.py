@@ -2009,10 +2009,10 @@ class DashboardPage(wx.Panel):
         parent.switch_to_start_page()
         
     def on_logout(self, event):
-        """Logout and return to title screen"""
+        """Logout and return to patient selection screen"""
         parent = self.GetParent()
         # Reset dashboard state if needed
         self.is_logged_in = False
         self.current_username = None
-        parent.switch_to_title_page()
+        parent.switch_to_patient_selection_page()
     
