@@ -1,0 +1,5 @@
+time of button press,seat position of button event,expected seat position of button event,button event,accuracy score
+4.883,503.85,372.19,press,11.73
+7.850,182.30,76.83,release,26.46
+14.748,575.07,372.19,press,0.00
+16.493,179.54,76.83,release,28.39

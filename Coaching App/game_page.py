@@ -241,7 +241,7 @@ class SharedStats:
         
         # Mode control: "hardware", "csv_playback", or None
         self.current_mode = None  # Will be determined by detect_mode()
-        self.mode_override = "csv_playback"  # Force CSV playback mode (uses hikaru data)
+        self.mode_override = "hardware"  # Force CSV playback mode (uses hikaru data)
         
         # CSV playback mode (replay data from sensor CSV files)
         self.anc_playback_mode = False
@@ -2713,8 +2713,8 @@ class ModernStatsDisplay(wx.Panel):
         if not is_automatic:
             # MANUAL MODE: accuracy from button press-hold-release timing (combined accuracy)
             if self.shared_state.button_combined_accuracies:
-                # Average all combined (press + release) accuracies
-                accuracy = sum(self.shared_state.button_combined_accuracies) / len(self.shared_state.button_combined_accuracies)
+                # Show last stroke's combined (press + release) accuracy
+                accuracy = self.shared_state.button_combined_accuracies[-1]
             else:
                 # No completed press-release cycles yet - start at 0%
                 accuracy = 0.0

@@ -9,5 +9,5 @@
     "front_potentiometer_channel": 21,
     "back_potentiometer_channel": 22
   },
-  "button_push_window_mm": 70.0
+  "button_push_window_mm": 100.0
 }
