@@ -2103,7 +2103,17 @@ class GamePage(wx.Panel):
         
         # Button press counter for terminal output
         self.button_press_count = 0
-
+        
+        # CSV file for button press logging
+        self.button_press_csv_file = None
+        self.button_press_csv_writer = None
+        self.button_press_csv_path = None
+        self.game_start_time = None  # Track when game session starts
+        
+        # Track optimal position crossings for expected time calculation
+        self.last_seat_position = None
+        self.last_optimal_press_crossing_time = None
+        self.last_optimal_release_crossing_time = None
 
         # initialize the main timer
         self.timer = wx.Timer(self)
@@ -2143,6 +2153,9 @@ class GamePage(wx.Panel):
             # Calculate distance based on current data
             self.shared_state.calculate_distance()
             
+            # Track optimal position crossings for expected time calculation
+            self._track_optimal_position_crossings()
+            
             # Update all UI panels
             self.stats_panel.update_stats()
             self.location_progress_panel.update_display()
@@ -2153,6 +2166,74 @@ class GamePage(wx.Panel):
             import traceback
             traceback.print_exc()
     
+    def _track_optimal_position_crossings(self):
+        """Track when seat position crosses optimal press/release positions"""
+        # Only track in manual mode
+        if self.shared_state.is_automatic_mode:
+            return
+        
+        # Get current seat position
+        if self.shared_state.seat_position_mm and len(self.shared_state.seat_position_mm) > 0:
+            current_pos = self.shared_state.seat_position_mm[-1]
+        elif self.shared_state.raw_seat_pos and len(self.shared_state.raw_seat_pos) > 0:
+            current_pos = self.shared_state.raw_seat_pos[-1]
+        else:
+            return
+        
+        current_time = time.time()
+        
+        # Track press optimal position crossing
+        if hasattr(self.shared_state, 'seat_position_press') and self.shared_state.seat_position_press is not None:
+            optimal_press = self.shared_state.seat_position_press
+            if self.last_seat_position is not None:
+                # Check if we crossed the optimal press position
+                # Crossing from left to right (increasing position) or right to left (decreasing)
+                if (self.last_seat_position < optimal_press and current_pos >= optimal_press) or \
+                   (self.last_seat_position > optimal_press and current_pos <= optimal_press):
+                    self.last_optimal_press_crossing_time = current_time
+        
+        # Track release optimal position crossing
+        if hasattr(self.shared_state, 'seat_position_release') and self.shared_state.seat_position_release is not None:
+            optimal_release = self.shared_state.seat_position_release
+            if self.last_seat_position is not None:
+                # Check if we crossed the optimal release position
+                if (self.last_seat_position < optimal_release and current_pos >= optimal_release) or \
+                   (self.last_seat_position > optimal_release and current_pos <= optimal_release):
+                    self.last_optimal_release_crossing_time = current_time
+        
+        self.last_seat_position = current_pos
+    
+    def _write_button_event_to_csv(self, event_type, event_time, time_expected, accuracy, early_late):
+        """Write button event to CSV file"""
+        if not self.button_press_csv_writer:
+            return
+        
+        try:
+            # Calculate relative times from game start
+            if self.game_start_time:
+                time_relative = event_time - self.game_start_time
+                time_expected_relative = time_expected - self.game_start_time
+            else:
+                time_relative = event_time
+                time_expected_relative = time_expected
+            
+            # Write row: event, time, time expected, accuracy, early/late
+            self.button_press_csv_writer.writerow([
+                event_type,
+                f"{time_relative:.3f}",
+                f"{time_expected_relative:.3f}",
+                f"{accuracy:.2f}",
+                early_late
+            ])
+            
+            # Flush to ensure data is written immediately
+            if self.button_press_csv_file:
+                self.button_press_csv_file.flush()
+        except Exception as e:
+            print(f"Error writing button event to CSV: {e}")
+            import traceback
+            traceback.print_exc()
+
     def reset_game(self):
         # Re-setup button press/release detection
         parent_frame = self.GetTopLevelParent()
@@ -2203,6 +2284,9 @@ class GamePage(wx.Panel):
         self.stats_panel.reset()
         self.rowing_scene_panel.reset()
         self.fes_indicator_panel.reset()
+        
+        # Initialize CSV file for button press logging
+        self._initialize_button_press_csv()
         # Reset button press counter
         self.button_press_count = 0
         
@@ -2229,6 +2313,54 @@ class GamePage(wx.Panel):
         # Restart timer if it was stopped
         if not self.timer.IsRunning():
             self.timer.Start(100)
+    
+    def _initialize_button_press_csv(self):
+        """Initialize CSV file for logging button press events"""
+        try:
+            # Close existing CSV file if open
+            if self.button_press_csv_file:
+                self.button_press_csv_file.close()
+            
+            # Get patient name (default to "demo" if not set)
+            patient_name = getattr(self.shared_state, 'user_name', 'demo')
+            if not patient_name or patient_name == "":
+                patient_name = "demo"
+            
+            # Create filename with format: {patient_name}-{date}-{time}.csv
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            filename = f"{patient_name}-{timestamp}.csv"
+            
+            # Create data directory if it doesn't exist
+            data_dir = os.path.join(os.path.dirname(__file__), "data")
+            if not os.path.exists(data_dir):
+                os.makedirs(data_dir)
+            
+            # Full path to CSV file
+            self.button_press_csv_path = os.path.join(data_dir, filename)
+            
+            # Open CSV file for writing
+            self.button_press_csv_file = open(self.button_press_csv_path, 'w', newline='')
+            self.button_press_csv_writer = csv.writer(self.button_press_csv_file)
+            
+            # Write header
+            self.button_press_csv_writer.writerow(['event', 'time', 'time expected', 'accuracy', 'early/late'])
+            
+            # Track game start time
+            self.game_start_time = time.time()
+            
+            # Reset optimal position crossing tracking
+            self.last_seat_position = None
+            self.last_optimal_press_crossing_time = None
+            self.last_optimal_release_crossing_time = None
+            
+            print(f"Button press CSV initialized: {self.button_press_csv_path}")
+        except Exception as e:
+            print(f"Error initializing button press CSV: {e}")
+            import traceback
+            traceback.print_exc()
+            self.button_press_csv_file = None
+            self.button_press_csv_writer = None
 
     def setup_game_controller(self):
         """Initialize pygame and detect game controller"""
@@ -2384,6 +2516,18 @@ class GamePage(wx.Panel):
         self.shared_state.button_press_accuracy_temp = press_accuracy
         self.shared_state.button_press_accuracies.append(press_accuracy)
         
+        # Calculate expected time and early/late status
+        time_expected = self.last_optimal_press_crossing_time if self.last_optimal_press_crossing_time else current_time
+        if current_pos_mm < optimal_pos:
+            early_late = "early"
+        elif current_pos_mm > optimal_pos:
+            early_late = "late"
+        else:
+            early_late = "on time"
+        
+        # Write to CSV
+        self._write_button_event_to_csv("press", current_time, time_expected, press_accuracy, early_late)
+        
         # Output
         print(f"Button PRESS #{self.button_press_count}: press_accuracy={press_accuracy:.1f}% (pos={current_pos_mm:.1f}mm, target={optimal_pos:.1f}mm) [HOLDING...]")
     
@@ -2452,6 +2596,19 @@ class GamePage(wx.Panel):
         # Get press position for output
         press_pos = self.shared_state.button_press_position_mm if self.shared_state.button_press_position_mm is not None else "N/A"
         
+        # Calculate expected time and early/late status
+        current_time = time.time()
+        time_expected = self.last_optimal_release_crossing_time if self.last_optimal_release_crossing_time else current_time
+        if current_pos_mm < optimal_pos:
+            early_late = "early"
+        elif current_pos_mm > optimal_pos:
+            early_late = "late"
+        else:
+            early_late = "on time"
+        
+        # Write to CSV
+        self._write_button_event_to_csv("release", current_time, time_expected, release_accuracy, early_late)
+        
         # Output
         print(f"Button RELEASE #{self.button_press_count}: release_accuracy={release_accuracy:.1f}% (pos={current_pos_mm:.1f}mm, target={optimal_pos:.1f}mm)")
         print(f"  → COMBINED accuracy={combined_accuracy:.1f}% (press={self.shared_state.button_press_accuracy_temp:.1f}%, release={release_accuracy:.1f}%)")
@@ -2470,6 +2627,16 @@ class GamePage(wx.Panel):
         
         # Stop distance calculation when finishing session
         self.shared_state.game_started = False
+        
+        # Close button press CSV file
+        if self.button_press_csv_file:
+            try:
+                self.button_press_csv_file.close()
+                print(f"Button press CSV file closed: {self.button_press_csv_path}")
+            except Exception as e:
+                print(f"Error closing button press CSV file: {e}")
+            self.button_press_csv_file = None
+            self.button_press_csv_writer = None
         
         # Save session summary to CSV
         summary_data = self.shared_state.save_session_summary()
